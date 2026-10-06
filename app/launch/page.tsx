@@ -6,7 +6,7 @@ export default function LaunchPage() {
       <div>
         <h1 className="font-display text-4xl sm:text-6xl tracking-wide leading-none text-green glow-green">LAUNCH A COIN</h1>
         <p className="text-sm text-muted mt-2 max-w-2xl">
-          One form, one transaction. Your coin starts on the bonding curve and graduates to a DEX pool at 85 SOL. Lock your dev tokens to earn the badge.
+          One form, one wallet approval. Your token is created on Solana mainnet and starts trading on the pump.fun bonding curve immediately. Every buy through BeckPad is attributed to whoever drove it.
         </p>
       </div>
       <LaunchForm />

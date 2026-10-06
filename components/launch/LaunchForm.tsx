@@ -3,8 +3,10 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
+import { Keypair } from "@solana/web3.js";
 import { api } from "@/lib/api";
 import { useIdentity } from "@/lib/wallet";
+import { usePumpTx, EXPLORER } from "@/lib/solana";
 import { Modal } from "@/components/ui/Modal";
 import { CoinAvatar } from "@/components/ui/CoinAvatar";
 import { LaunchPreview } from "./LaunchPreview";
@@ -17,9 +19,11 @@ const EMOJIS = ["🪙", "🧠", "🖨️", "🚀", "🐸", "🐶", "🐋", "💎
 export function LaunchForm() {
   const id = useIdentity();
   const router = useRouter();
+  const sendTx = usePumpTx();
   const fileRef = useRef<HTMLInputElement>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<string | null>(null);
   const [form, setForm] = useState<LaunchInput>({
     name: "",
     ticker: "",
@@ -27,8 +31,8 @@ export function LaunchForm() {
     emoji: "🪙",
     imageUrl: undefined,
     socials: {},
-    devBuySol: 0.5,
-    devLock: true,
+    devBuySol: 0.1,
+    devLock: false,
     creator: "",
   });
   const input: LaunchInput = { ...form, creator: id.address ?? "" };
@@ -36,9 +40,10 @@ export function LaunchForm() {
 
   const errors: string[] = [];
   if (form.name.trim().length < 2) errors.push("Name needs at least 2 characters");
-  if (!/^[A-Za-z0-9]{2,8}$/.test(form.ticker)) errors.push("Ticker: 2–8 letters/numbers");
+  if (!/^[A-Za-z0-9]{2,10}$/.test(form.ticker)) errors.push("Ticker: 2–10 letters/numbers");
   if (form.description.trim().length < 10) errors.push("Description needs at least 10 characters");
-  if (form.devBuySol < 0 || form.devBuySol > 20) errors.push("Dev buy must be 0–20 SOL");
+  if (!form.imageUrl) errors.push("Upload an image (pump.fun shows it everywhere)");
+  if (form.devBuySol < 0.01 || form.devBuySol > 20) errors.push("Dev buy must be 0.01–20 SOL");
 
   const onFile = (f: File | undefined) => {
     if (!f) return;
@@ -51,15 +56,61 @@ export function LaunchForm() {
   const launch = async () => {
     if (!id.address) return;
     setBusy(true);
-    const t = toast.loading(`Launching $${form.ticker.toUpperCase()}…`, { description: "Creating mint + bonding curve (simulated)" });
+    const t = toast.loading(`Launching $${form.ticker.toUpperCase()}…`, { description: "Preparing metadata" });
+    const status = (s: string) => {
+      setStep(s);
+      toast.loading(`Launching $${form.ticker.toUpperCase()}…`, { id: t, description: s });
+    };
     try {
-      const coin = await api.launchCoin(input);
-      toast.success(`$${coin.ticker} is live!`, { id: t, description: coin.devLock ? "Dev lock badge applied." : undefined });
+      const mintKp = Keypair.generate();
+      const mint = mintKp.publicKey.toBase58();
+      status("Uploading metadata…");
+      const meta = await api.prepareLaunch({
+        mint,
+        name: form.name,
+        ticker: form.ticker,
+        description: form.description,
+        imageDataUrl: form.imageUrl,
+        emoji: form.emoji,
+        socials: form.socials,
+        creator: id.address,
+      });
+      const signature = await sendTx(
+        {
+          action: "create",
+          mint,
+          amount: form.devBuySol,
+          denominatedInSol: true,
+          slippage: 10,
+          priorityFee: 0.0005,
+          tokenMetadata: { name: meta.name, symbol: meta.symbol, uri: meta.uri },
+        },
+        [mintKp],
+        status,
+      );
+      status("Confirmed. Listing on BeckPad…");
+      let coin = null;
+      for (let i = 0; i < 4 && !coin; i++) {
+        try {
+          coin = await api.registerCoin({ mint, signature, creator: id.address });
+        } catch (e) {
+          if (i === 3) throw e;
+          await new Promise((r) => setTimeout(r, 2500));
+        }
+      }
+      toast.success(`$${coin!.ticker} is live on Solana!`, {
+        id: t,
+        description: "Token created on pump.fun. View the transaction on Solscan.",
+        action: { label: "Solscan", onClick: () => window.open(EXPLORER(signature), "_blank") },
+        duration: 10000,
+      });
       setConfirm(false);
-      router.push(`/coin/${coin.mint}`);
+      router.push(`/coin/${mint}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Launch failed", { id: t });
+      const msg = e instanceof Error ? e.message : "Launch failed";
+      toast.error(/user rejected|rejected the request/i.test(msg) ? "Cancelled in wallet" : msg, { id: t, duration: 10000 });
       setBusy(false);
+      setStep(null);
     }
   };
 
@@ -69,7 +120,7 @@ export function LaunchForm() {
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-3 space-y-5">
         <div className="card p-4 sm:p-5 space-y-4">
-          <div className="font-display text-xl tracking-[0.2em] text-gold">1 · IDENTITY</div>
+          <div className="font-display font-bold text-xl tracking-[0.2em] text-gold">1 · IDENTITY</div>
           <div className="flex gap-4 items-start">
             <div className="space-y-2">
               <CoinAvatar emoji={form.emoji} hue={45} imageUrl={form.imageUrl} size={96} className="rounded-2xl" />
@@ -93,9 +144,9 @@ export function LaunchForm() {
                   <label className="stat-label">Ticker</label>
                   <input
                     value={form.ticker}
-                    onChange={(e) => set("ticker", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
+                    onChange={(e) => set("ticker", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10))}
                     placeholder="BRRR"
-                    className={`${field} font-display text-lg tracking-widest`}
+                    className={`${field} font-display font-bold text-lg tracking-widest`}
                   />
                 </div>
               </div>
@@ -104,16 +155,16 @@ export function LaunchForm() {
                 <textarea
                   value={form.description}
                   onChange={(e) => set("description", e.target.value)}
-                  maxLength={280}
+                  maxLength={500}
                   rows={3}
                   placeholder="What's the lore? Why will this print?"
                   className="w-full px-3 py-2 rounded-lg bg-black/60 border border-line text-sm focus:outline-none focus:border-gold resize-none"
                 />
-                <div className="text-[10px] text-muted text-right">{form.description.length}/280</div>
+                <div className="text-[10px] text-muted text-right">{form.description.length}/500</div>
               </div>
               {!form.imageUrl && (
                 <div>
-                  <label className="stat-label">No image? Pick an emoji</label>
+                  <label className="stat-label">Placeholder emoji (until you upload an image)</label>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {EMOJIS.map((e) => (
                       <button
@@ -132,7 +183,7 @@ export function LaunchForm() {
         </div>
 
         <div className="card p-4 sm:p-5 space-y-3">
-          <div className="font-display text-xl tracking-[0.2em] text-gold">2 · SOCIALS</div>
+          <div className="font-display font-bold text-xl tracking-[0.2em] text-gold">2 · SOCIALS</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {(["twitter", "telegram", "website"] as const).map((k) => (
               <div key={k}>
@@ -149,33 +200,29 @@ export function LaunchForm() {
         </div>
 
         <div className="card p-4 sm:p-5 space-y-4">
-          <div className="font-display text-xl tracking-[0.2em] text-gold">3 · DEV BUY & LOCK</div>
+          <div className="font-display font-bold text-xl tracking-[0.2em] text-gold">3 · DEV BUY</div>
           <div>
             <div className="flex items-center justify-between">
-              <label className="stat-label">Optional dev buy</label>
-              <span className="font-display text-2xl text-green tabular">{form.devBuySol.toFixed(2)} SOL</span>
+              <label className="stat-label">Your first buy (same transaction)</label>
+              <span className="font-display font-bold text-2xl text-green tabular">{form.devBuySol.toFixed(2)} SOL</span>
             </div>
-            <input type="range" min={0} max={10} step={0.05} value={form.devBuySol} onChange={(e) => set("devBuySol", parseFloat(e.target.value))} className="w-full" />
-            <p className="text-[11px] text-muted">Buys your own first tokens at launch. Big dev buys tank the Rug Check score unless locked.</p>
+            <input type="range" min={0.01} max={10} step={0.01} value={form.devBuySol} onChange={(e) => set("devBuySol", parseFloat(e.target.value))} className="w-full" />
+            <p className="text-[11px] text-muted">Buys your own first tokens at launch. Big dev buys lower the Rug Check score because the dev wallet holds more supply.</p>
           </div>
-          <label className="flex items-center justify-between gap-4 p-3 rounded-lg border border-line bg-black/40 cursor-pointer">
-            <div>
-              <div className="font-bold text-sm flex items-center gap-2">
-                🔒 Dev lock
-                {form.devLock && <span className="text-[10px] font-bold tracking-widest text-green border border-green/40 bg-green/10 px-1.5 py-0.5 rounded">BADGE ON</span>}
-              </div>
-              <div className="text-[11px] text-muted">Lock dev tokens for 90 days. Locked devs get a visible badge on every card and a Rug Check boost.</div>
+          <div className="rounded-lg border border-line bg-black/40 p-3 text-xs text-muted space-y-1">
+            <div className="flex justify-between">
+              <span>Token creation + network fees</span>
+              <span className="text-white">~0.02 SOL</span>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={form.devLock}
-              onClick={() => set("devLock", !form.devLock)}
-              className={`w-14 h-8 rounded-full p-1 transition ${form.devLock ? "bg-green" : "bg-line"}`}
-            >
-              <span className={`block w-6 h-6 rounded-full bg-black transition ${form.devLock ? "translate-x-6" : ""}`} />
-            </button>
-          </label>
+            <div className="flex justify-between">
+              <span>Trading fee on the dev buy</span>
+              <span className="text-white">1.5%</span>
+            </div>
+            <div className="flex justify-between font-bold">
+              <span className="text-white">Approx. total from your wallet</span>
+              <span className="text-gold">{(form.devBuySol * 1.015 + 0.02).toFixed(3)} SOL</span>
+            </div>
+          </div>
         </div>
 
         {errors.length > 0 && (
@@ -190,17 +237,14 @@ export function LaunchForm() {
           <button
             onClick={() => setConfirm(true)}
             disabled={errors.length > 0}
-            className="w-full h-14 rounded-lg bg-green text-black font-display text-2xl tracking-widest box-glow-green hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] transition"
+            className="w-full h-14 rounded-lg bg-green text-black font-display font-bold text-2xl tracking-widest box-glow-green hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] transition"
           >
             REVIEW & LAUNCH
           </button>
         ) : (
           <div className="card p-4 flex flex-col sm:flex-row items-center gap-3">
-            <span className="text-sm text-muted flex-1">Connect a wallet to launch, or use a demo wallet to try it.</span>
+            <span className="text-sm text-muted flex-1">Connect a Solana wallet with a little SOL to launch. The token is created on mainnet.</span>
             <WalletMultiButton />
-            <button onClick={() => id.enableDemo()} className="h-10 px-4 rounded-lg border border-green/50 text-green font-display text-lg tracking-wider hover:bg-green/10">
-              DEMO WALLET
-            </button>
           </div>
         )}
       </div>
@@ -213,15 +257,17 @@ export function LaunchForm() {
         <div className="space-y-4">
           <LaunchPreview input={input} />
           <ul className="text-xs text-muted space-y-1">
-            <li>• Mint created with 1B supply, all on the bonding curve.</li>
-            <li>• Dev buy of {form.devBuySol.toFixed(2)} SOL executes in the same transaction{form.devLock ? " and is locked for 90 days" : ""}.</li>
-            <li>• Trades are simulated off-chain for now. No real SOL is spent.</li>
+            <li>• Creates a real SPL token on Solana mainnet with a 1B supply on the pump.fun bonding curve.</li>
+            <li>• Your dev buy of {form.devBuySol.toFixed(2)} SOL executes in the same transaction.</li>
+            <li>• Your wallet will ask you to approve one transaction (~{(form.devBuySol * 1.015 + 0.02).toFixed(3)} SOL total).</li>
+            <li>• This cannot be undone. Tokens created on the curve cannot be deleted.</li>
           </ul>
+          {step && <div className="text-xs text-gold font-bold">{step}</div>}
           <div className="flex gap-2">
-            <button onClick={() => setConfirm(false)} disabled={busy} className="flex-1 h-12 rounded-lg border border-line font-display text-xl tracking-widest text-muted hover:text-white">
+            <button onClick={() => setConfirm(false)} disabled={busy} className="flex-1 h-12 rounded-lg border border-line font-display font-bold text-xl tracking-widest text-muted hover:text-white">
               BACK
             </button>
-            <button onClick={launch} disabled={busy} className="flex-1 h-12 rounded-lg bg-green text-black font-display text-xl tracking-widest box-glow-green disabled:opacity-50">
+            <button onClick={launch} disabled={busy} className="flex-1 h-12 rounded-lg bg-green text-black font-display font-bold text-xl tracking-widest box-glow-green disabled:opacity-50">
               {busy ? "LAUNCHING…" : "SEND IT 🚀"}
             </button>
           </div>

@@ -1,17 +1,16 @@
 /**
- * Server-side data store. Holds every coin, trade, comment and referral link
- * created on the site, persisted to a JSON file (DATA_DIR/beckpad.json).
- * Nothing is seeded: the site starts empty and fills up as people use it.
- *
- * Phase 2 replaces this with the on-chain program + indexer; the function
- * signatures here are the contract the RPC route and lib/api.ts rely on.
+ * Server-side registry + attribution index for coins launched through BeckPad.
+ * The bonding curve itself lives on-chain (pump.fun program); this store keeps
+ * metadata, trades that went through BeckPad (verified on-chain), referral
+ * links, comments and derived stats. Persisted to DATA_DIR/beckpad.json.
  */
 import fs from "fs";
 import path from "path";
-import { createRng, fakeAddress, fakeId } from "./rng";
-import { curveState, GRADUATION_SOL, TOTAL_SUPPLY, quoteBuy, quoteSell } from "./curve";
+import { createRng, fakeId } from "./rng";
+import { INITIAL_REAL_TOKENS, marketCapOf, priceOf, progressOf, TOTAL_SUPPLY } from "./curve";
 import { SOL_USD } from "./format";
 import { scoreToGrade, tierForVolume } from "./tiers";
+import * as chain from "./chain";
 import type {
   Attribution,
   Caller,
@@ -19,47 +18,63 @@ import type {
   Coin,
   CoinTab,
   Comment,
+  CurveSnapshot,
   Holder,
-  LaunchInput,
   LiveEvent,
+  PrepareLaunchInput,
   Profile,
   Range,
+  RecordTradeInput,
   ReferralLink,
+  RegisterCoinInput,
   Source,
   SyncResult,
   Trade,
-  TradeInput,
 } from "@/types";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+const CURVE_TTL = 12_000;
+const HOLDERS_TTL = 45_000;
+
+interface PendingLaunch extends PrepareLaunchInput {
+  createdAt: number;
+  uri: string;
+}
 
 interface World {
   coins: Map<string, Coin>;
+  images: Map<string, string>; // mint -> data URL
+  pending: Map<string, PendingLaunch>;
   trades: Map<string, Trade[]>; // newest first
-  comments: Map<string, Comment[]>; // newest first
+  signatures: Set<string>;
+  comments: Map<string, Comment[]>;
   candles: Map<string, Candle[]>;
   referralLinks: Map<string, ReferralLink>;
-  positions: Map<string, Map<string, number>>; // wallet -> mint -> tokens
-  events: LiveEvent[]; // newest first
-  updatedAt: Map<string, number>; // mint -> last change
+  events: LiveEvent[];
+  updatedAt: Map<string, number>;
+  holdersCache: Map<string, { at: number; holders: Holder[] }>;
 }
 
 /* ----------------------------- persistence ----------------------------- */
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "beckpad.json");
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://beckpad-production.up.railway.app").replace(/\/$/, "");
 
 function emptyWorld(): World {
   return {
     coins: new Map(),
+    images: new Map(),
+    pending: new Map(),
     trades: new Map(),
+    signatures: new Set(),
     comments: new Map(),
     candles: new Map(),
     referralLinks: new Map(),
-    positions: new Map(),
     events: [],
     updatedAt: new Map(),
+    holdersCache: new Map(),
   };
 }
 
@@ -68,12 +83,14 @@ function load(): World {
     if (!fs.existsSync(DATA_FILE)) return emptyWorld();
     const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     const w = emptyWorld();
-    for (const c of raw.coins ?? []) w.coins.set(c.mint, c);
+    for (const c of raw.coins ?? []) if (c.curve && c.signature) w.coins.set(c.mint, c);
+    for (const [k, v] of raw.images ?? []) w.images.set(k, v);
+    for (const [k, v] of raw.pending ?? []) w.pending.set(k, v);
     for (const [k, v] of raw.trades ?? []) w.trades.set(k, v);
+    for (const s of raw.signatures ?? []) w.signatures.add(s);
     for (const [k, v] of raw.comments ?? []) w.comments.set(k, v);
     for (const [k, v] of raw.candles ?? []) w.candles.set(k, v);
     for (const [k, v] of raw.referralLinks ?? []) w.referralLinks.set(k, v);
-    for (const [wallet, entries] of raw.positions ?? []) w.positions.set(wallet, new Map(entries));
     w.events = raw.events ?? [];
     return w;
   } catch (e) {
@@ -91,11 +108,13 @@ function save() {
       fs.mkdirSync(DATA_DIR, { recursive: true });
       const raw = {
         coins: Array.from(world.coins.values()),
+        images: Array.from(world.images.entries()),
+        pending: Array.from(world.pending.entries()),
         trades: Array.from(world.trades.entries()),
+        signatures: Array.from(world.signatures),
         comments: Array.from(world.comments.entries()),
         candles: Array.from(world.candles.entries()),
         referralLinks: Array.from(world.referralLinks.entries()),
-        positions: Array.from(world.positions.entries()).map(([w, m]) => [w, Array.from(m.entries())]),
         events: world.events.slice(0, 300),
       };
       const tmp = DATA_FILE + ".tmp";
@@ -110,6 +129,14 @@ function save() {
 const g = globalThis as unknown as { __beckpadStore?: World };
 const world: World = g.__beckpadStore ?? (g.__beckpadStore = load());
 const rng = createRng((Date.now() ^ 0xbec4) >>> 0);
+
+let solUsd = SOL_USD;
+function refreshSolPrice() {
+  void chain.solPriceUsd().then((p) => {
+    if (p > 0) solUsd = p;
+  });
+}
+refreshSolPrice();
 
 /* ----------------------------- helpers ----------------------------- */
 
@@ -137,7 +164,7 @@ const DIRECT: Source = { id: "direct", kind: "direct", label: "Direct / untracke
 
 function sourceForRef(ref?: string | null): Source {
   if (!ref) return DIRECT;
-  const code = ref.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 24);
+  const code = String(ref).toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 24);
   if (!code) return DIRECT;
   const link = world.referralLinks.get(code);
   return { id: `ref:${code}`, kind: "referral", label: `ref:${code}`, handle: link ? short(link.owner) : undefined };
@@ -148,16 +175,30 @@ function touch(mint: string) {
   save();
 }
 
-function positionsFor(mint: string): { wallet: string; tokens: number }[] {
-  const out: { wallet: string; tokens: number }[] = [];
-  for (const [wallet, m] of world.positions) {
-    const t = m.get(mint) ?? 0;
-    if (t > 1e-6) out.push({ wallet, tokens: t });
-  }
-  return out.sort((a, b) => b.tokens - a.tokens);
+function isPubkey(s: unknown): s is string {
+  return typeof s === "string" && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s);
 }
 
 /* ----------------------------- derived data ----------------------------- */
+
+function applyCurve(c: Coin, s: CurveSnapshot) {
+  const prevPrice = c.priceSol;
+  c.curve = s;
+  c.realSol = s.realSol;
+  c.priceSol = priceOf(s);
+  c.marketCapSol = marketCapOf(s);
+  c.marketCapUsd = c.marketCapSol * solUsd;
+  c.curvePct = progressOf(s);
+  if (s.complete && !c.graduated) {
+    c.graduated = true;
+    c.graduatedAt = Date.now();
+    pushEvent({ id: fakeId(rng), kind: "graduate", mint: c.mint, ticker: c.ticker, emoji: c.emoji, hue: c.hue, ts: Date.now() });
+  }
+  if (c.priceSol !== prevPrice) {
+    updateCandle(c.mint, c.priceSol);
+    touch(c.mint);
+  }
+}
 
 function recomputeAttribution(c: Coin) {
   const trades = world.trades.get(c.mint) ?? [];
@@ -182,67 +223,106 @@ function recomputeAttribution(c: Coin) {
   c.topSource = rows.find((r) => r.source.kind !== "direct")?.source ?? null;
 }
 
-function recomputeRug(c: Coin) {
-  const pos = positionsFor(c.mint);
-  const dev = pos.find((p) => p.wallet === c.creator)?.tokens ?? 0;
-  const devWalletPct = (dev / TOTAL_SUPPLY) * 100;
-  const top10 = pos.slice(0, 10).reduce((a, b) => a + b.tokens, 0);
-  const top10Pct = (top10 / TOTAL_SUPPLY) * 100;
+function recomputeRug(c: Coin, holders: Holder[]) {
+  const dev = holders.find((h) => h.isDev)?.tokens ?? 0;
+  const supply = c.curve.totalSupply || TOTAL_SUPPLY;
+  const devWalletPct = (dev / supply) * 100;
+  const top10 = holders.filter((h) => !h.isCurve).slice(0, 10).reduce((a, b) => a + b.tokens, 0);
+  const top10Pct = (top10 / supply) * 100;
   const trades = world.trades.get(c.mint) ?? [];
   const early = new Set(trades.filter((t) => t.side === "buy" && t.wallet !== c.creator && t.ts - c.createdAt < 3000).map((t) => t.wallet));
   const bundledBuys = early.size;
   const bundledDetected = bundledBuys >= 3;
   const devSold = trades.some((t) => t.side === "sell" && t.wallet === c.creator);
-  let score = 100 - devWalletPct * 1.6 - Math.max(0, top10Pct - 20) * 0.7 - bundledBuys * 2.5 - (devSold ? 28 : 0) + (c.devLock ? 8 : 0) + (c.graduated ? 4 : 0);
+  let score = 100 - devWalletPct * 1.6 - Math.max(0, top10Pct - 20) * 0.7 - bundledBuys * 2.5 - (devSold ? 28 : 0) + (c.graduated ? 4 : 0);
   score = Math.round(Math.max(0, Math.min(100, score)));
   const notes: string[] = [];
-  if (c.devLock) notes.push("Dev tokens locked");
   if (devSold) notes.push("Dev wallet has sold");
   if (bundledDetected) notes.push(`${bundledBuys} wallets bought within 3s of launch`);
   if (top10Pct > 50) notes.push("Top-10 holders over 50%");
   if (devWalletPct > 15) notes.push("Dev wallet over 15%");
-  if (trades.length === 0) notes.push("No trades yet");
+  if (trades.length === 0) notes.push("No BeckPad trades yet");
   if (notes.length === 0) notes.push("No red flags detected");
-  c.rug = {
-    devWalletPct: +devWalletPct.toFixed(1),
-    top10Pct: +top10Pct.toFixed(1),
-    bundledBuys,
-    bundledDetected,
-    devSold,
-    devLocked: c.devLock,
-    score,
-    grade: scoreToGrade(score),
-    notes,
-  };
+  c.rug = { devWalletPct: +devWalletPct.toFixed(1), top10Pct: +top10Pct.toFixed(1), bundledBuys, bundledDetected, devSold, devLocked: false, score, grade: scoreToGrade(score), notes };
 }
 
 function recomputeStats(c: Coin) {
-  if (!c.graduated) {
-    const s = curveState(c.realSol);
-    c.priceSol = s.priceSol;
-    c.marketCapSol = s.marketCapSol;
-    c.curvePct = s.pct;
-  } else {
-    c.marketCapSol = c.priceSol * TOTAL_SUPPLY;
-    c.curvePct = 100;
-  }
-  c.marketCapUsd = c.marketCapSol * SOL_USD;
   const now = Date.now();
   const trades = world.trades.get(c.mint) ?? [];
   c.volume24hSol = trades.filter((t) => now - t.ts < DAY).reduce((a, b) => a + b.sol, 0);
-  c.holders = positionsFor(c.mint).length;
   c.replies = (world.comments.get(c.mint) ?? []).length;
   const candles = world.candles.get(c.mint) ?? [];
   const cutoff = Math.floor((now - DAY) / 1000);
   const ref = candles.find((k) => k.time >= cutoff) ?? candles[0];
   c.change24h = ref && ref.open > 0 ? ((c.priceSol - ref.open) / ref.open) * 100 : 0;
+  c.marketCapUsd = c.marketCapSol * solUsd;
 }
 
-function refresh(c: Coin) {
-  recomputeAttribution(c);
-  recomputeRug(c);
-  recomputeStats(c);
-  return c;
+/* ----------------------------- chain refresh ----------------------------- */
+
+const inflight = new Map<string, Promise<void>>();
+
+async function refreshCurve(c: Coin, force = false) {
+  if (!force && Date.now() - c.curve.updatedAt < CURVE_TTL) return;
+  if (c.graduated && !force && Date.now() - c.curve.updatedAt < 10 * CURVE_TTL) return;
+  let p = inflight.get(c.mint);
+  if (!p) {
+    p = (async () => {
+      try {
+        const s = await chain.readCurve(c.mint);
+        if (s) applyCurve(c, s);
+        else c.curve.updatedAt = Date.now();
+      } catch (e) {
+        console.error("[store] curve refresh failed", c.mint, e instanceof Error ? e.message : e);
+        c.curve.updatedAt = Date.now() - CURVE_TTL + 4000; // back off briefly
+      } finally {
+        inflight.delete(c.mint);
+      }
+    })();
+    inflight.set(c.mint, p);
+  }
+  await p;
+}
+
+async function refreshHolders(c: Coin, force = false): Promise<Holder[]> {
+  const cached = world.holdersCache.get(c.mint);
+  if (cached && !force && Date.now() - cached.at < HOLDERS_TTL) return cached.holders;
+  try {
+    const list = await chain.largestHolders(c.mint);
+    const supply = c.curve.totalSupply || TOTAL_SUPPLY;
+    const holders: Holder[] = list.map((h) => ({
+      wallet: h.owner,
+      pct: (h.tokens / supply) * 100,
+      tokens: h.tokens,
+      isDev: h.owner === c.creator,
+      isCurve: h.owner === chain.curvePda(c.mint).toBase58(),
+    }));
+    if (!holders.some((h) => h.isDev)) {
+      const devTokens = await chain.tokenBalance(c.creator, c.mint);
+      if (devTokens > 0) holders.push({ wallet: c.creator, pct: (devTokens / supply) * 100, tokens: devTokens, isDev: true, isCurve: false });
+    }
+    holders.sort((a, b) => b.pct - a.pct);
+    world.holdersCache.set(c.mint, { at: Date.now(), holders });
+    c.holders = holders.filter((h) => !h.isCurve).length;
+    recomputeRug(c, holders);
+    return holders;
+  } catch (e) {
+    console.error("[store] holders refresh failed", c.mint, e instanceof Error ? e.message : e);
+    return cached?.holders ?? [];
+  }
+}
+
+let lastSweep = 0;
+/** Keep the most active coins fresh without hammering the RPC. */
+function sweep() {
+  if (Date.now() - lastSweep < 10_000) return;
+  lastSweep = Date.now();
+  refreshSolPrice();
+  const coins = Array.from(world.coins.values())
+    .filter((c) => !c.graduated)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 12);
+  for (const c of coins) void refreshCurve(c);
 }
 
 function pub(c: Coin): Coin {
@@ -252,7 +332,8 @@ function pub(c: Coin): Coin {
 
 /* ----------------------------- reads ----------------------------- */
 
-export function listCoins(tab: CoinTab, limit = 60): Coin[] {
+export async function listCoins(tab: CoinTab, limit = 60): Promise<Coin[]> {
+  sweep();
   const all = Array.from(world.coins.values()).map(pub);
   let out: Coin[];
   switch (tab) {
@@ -266,17 +347,21 @@ export function listCoins(tab: CoinTab, limit = 60): Coin[] {
       out = all.filter((c) => c.graduated).sort((a, b) => (b.graduatedAt ?? 0) - (a.graduatedAt ?? 0));
       break;
     default:
-      out = all.filter((c) => !c.graduated).sort((a, b) => b.volume24hSol - a.volume24hSol || b.createdAt - a.createdAt);
+      out = all.filter((c) => !c.graduated).sort((a, b) => b.volume24hSol - a.volume24hSol || b.marketCapSol - a.marketCapSol || b.createdAt - a.createdAt);
   }
   return out.slice(0, limit);
 }
 
-export function getCoin(mint: string): Coin | null {
+export async function getCoin(mint: string): Promise<Coin | null> {
   const c = world.coins.get(mint);
-  return c ? pub(c) : null;
+  if (!c) return null;
+  await refreshCurve(c);
+  void refreshHolders(c);
+  return pub(c);
 }
 
-export function coinOfTheHour(): Coin | null {
+export async function coinOfTheHour(): Promise<Coin | null> {
+  sweep();
   const live = Array.from(world.coins.values())
     .map(pub)
     .filter((c) => !c.graduated);
@@ -301,18 +386,10 @@ export function getTrades(mint: string, limit = 50): Trade[] {
   return (world.trades.get(mint) ?? []).slice(0, limit);
 }
 
-export function getHolders(mint: string): Holder[] {
+export async function getHolders(mint: string): Promise<Holder[]> {
   const c = world.coins.get(mint);
   if (!c) return [];
-  const holders: Holder[] = [];
-  if (!c.graduated) {
-    const unsold = Math.max(0, TOTAL_SUPPLY - curveState(c.realSol).tokensSold);
-    holders.push({ wallet: "BondingCurve1111111111111111111111111111111", pct: (unsold / TOTAL_SUPPLY) * 100, tokens: unsold, isDev: false, isCurve: true });
-  }
-  for (const p of positionsFor(mint).slice(0, 25)) {
-    holders.push({ wallet: p.wallet, pct: (p.tokens / TOTAL_SUPPLY) * 100, tokens: p.tokens, isDev: p.wallet === c.creator, isCurve: false });
-  }
-  return holders.sort((a, b) => b.pct - a.pct);
+  return refreshHolders(c);
 }
 
 export function getComments(mint: string): Comment[] {
@@ -323,11 +400,13 @@ export function getCandles(mint: string): Candle[] {
   return world.candles.get(mint) ?? [];
 }
 
-export function getPosition(wallet: string, mint: string): number {
-  return world.positions.get(wallet)?.get(mint) ?? 0;
+export async function getPosition(wallet: string, mint: string): Promise<number> {
+  if (!isPubkey(wallet) || !isPubkey(mint)) return 0;
+  return chain.tokenBalance(wallet, mint);
 }
 
 export function sync(since: number): SyncResult {
+  sweep();
   const now = Date.now();
   const events = world.events.filter((e) => e.ts > since);
   const trades: Trade[] = [];
@@ -346,7 +425,6 @@ export function sync(since: number): SyncResult {
 
 export function leaderboard(range: Range): Caller[] {
   const now = Date.now();
-  const windowMs = range === "24h" ? DAY : range === "7d" ? 7 * DAY : Infinity;
   const byOwner = new Map<string, { vol: Record<Range, number>; buyers: Record<Range, Set<string>>; mints: Set<string>; label: string }>();
   for (const link of world.referralLinks.values()) {
     if (!byOwner.has(link.owner)) {
@@ -370,14 +448,14 @@ export function leaderboard(range: Range): Caller[] {
       });
     }
   }
-  void windowMs;
   const out: Caller[] = [];
+  const startMcap = (30 / 1_073_000_000) * TOTAL_SUPPLY;
   for (const [owner, row] of byOwner) {
     const called = Array.from(row.mints).map((m) => world.coins.get(m)).filter(Boolean) as Coin[];
     const wins = called.filter((c) => c.graduated || c.curvePct >= 10).length;
     let best: Caller["bestCall"] = null;
     for (const c of called) {
-      const multiple = Math.max(0.01, c.marketCapSol / curveState(0).marketCapSol);
+      const multiple = Math.max(0.01, c.marketCapSol / startMcap);
       if (!best || multiple > best.multiple) best = { ticker: c.ticker, mint: c.mint, multiple };
     }
     out.push({
@@ -419,9 +497,6 @@ export function profileFor(wallet: string): Profile {
       else received += t.sol;
     }
   }
-  let holdingsValue = 0;
-  const pos = world.positions.get(wallet);
-  if (pos) for (const [mint, tokens] of pos) holdingsValue += tokens * (world.coins.get(mint)?.priceSol ?? 0);
   for (const c of launches) first = Math.min(first, c.createdAt);
   for (const l of links) first = Math.min(first, l.createdAt);
   const tracked = refVolume + launchVolume * 0.25;
@@ -434,9 +509,38 @@ export function profileFor(wallet: string): Profile {
     launches,
     referralLinks: links,
     tradesCount,
-    pnlSol: +(received + holdingsValue - spent).toFixed(3),
+    pnlSol: +(received - spent).toFixed(3),
     joinedAt: isFinite(first) ? first : Date.now(),
   };
+}
+
+/* ----------------------------- metadata hosting ----------------------------- */
+
+export function metadataFor(mint: string) {
+  const c = world.coins.get(mint);
+  const p = world.pending.get(mint);
+  const src = c ?? p;
+  if (!src) return null;
+  const hasImage = world.images.has(mint);
+  return {
+    name: src.name,
+    symbol: src.ticker,
+    description: src.description,
+    image: hasImage ? `${SITE_URL}/api/meta/${mint}/image` : undefined,
+    showName: true,
+    createdOn: "https://pump.fun",
+    twitter: src.socials.twitter,
+    telegram: src.socials.telegram,
+    website: src.socials.website || SITE_URL,
+  };
+}
+
+export function imageFor(mint: string): { bytes: Buffer; type: string } | null {
+  const data = world.images.get(mint);
+  if (!data) return null;
+  const m = data.match(/^data:(image\/[a-z+.-]+);base64,(.+)$/);
+  if (!m) return null;
+  return { bytes: Buffer.from(m[2], "base64"), type: m[1] };
 }
 
 /* ----------------------------- mutations ----------------------------- */
@@ -447,6 +551,7 @@ function pushEvent(e: LiveEvent) {
 }
 
 function updateCandle(mint: string, price: number) {
+  if (!(price > 0)) return;
   const candles = world.candles.get(mint) ?? [];
   const now = Math.floor(Date.now() / 1000);
   const bucket = now - (now % 300);
@@ -458,140 +563,164 @@ function updateCandle(mint: string, price: number) {
   } else {
     const open = last?.close ?? price;
     candles.push({ time: bucket, open, high: Math.max(price, open), low: Math.min(price, open), close: price });
+    if (candles.length > 2000) candles.splice(0, candles.length - 2000);
   }
   world.candles.set(mint, candles);
 }
 
-export function executeTrade(input: TradeInput): { trade: Trade; coin: Coin; graduated: boolean } {
-  const c = world.coins.get(input.mint);
-  if (!c) throw new Error("Coin not found");
-  if (c.graduated) throw new Error("Coin has graduated. Trade it on the DEX pool.");
-  if (!input.wallet) throw new Error("Connect a wallet first");
-  const amount = Number(input.amount);
-  if (!(amount > 0)) throw new Error(input.side === "buy" ? "Enter a SOL amount" : "Enter a token amount");
-  let sol: number;
-  let tokens: number;
-  let graduated = false;
-  let source: Source | null = null;
-  const pos = world.positions.get(input.wallet) ?? new Map<string, number>();
-  const have = pos.get(c.mint) ?? 0;
-
-  if (input.side === "buy") {
-    if (amount > 1000) throw new Error("Max 1000 SOL per buy");
-    const q = quoteBuy(c.realSol, amount);
-    const minOut = q.tokensOut * (1 - (input.slippagePct ?? 5) / 100);
-    if (q.tokensOut < minOut) throw new Error("Slippage exceeded");
-    sol = q.solNet + q.feeSol;
-    tokens = q.tokensOut;
-    c.realSol = q.newRealSol;
-    graduated = q.graduates;
-    pos.set(c.mint, have + tokens);
-    world.positions.set(input.wallet, pos);
-    source = sourceForRef(input.ref);
-    if (source.kind === "referral") {
-      const link = world.referralLinks.get(source.id.slice(4));
-      if (link) {
-        link.buys += 1;
-        link.volumeSol += sol;
-        if (have <= 1e-6) link.uniqueBuyers += 1;
-      }
-    }
-  } else {
-    if (amount > have + 1e-6) throw new Error("Not enough tokens in this wallet");
-    const q = quoteSell(c.realSol, amount);
-    sol = q.solOut;
-    tokens = q.tokensIn;
-    c.realSol = q.newRealSol;
-    pos.set(c.mint, Math.max(0, have - tokens));
-    world.positions.set(input.wallet, pos);
-  }
-
-  if (graduated) {
-    c.graduated = true;
-    c.graduatedAt = Date.now();
-    c.priceSol = curveState(GRADUATION_SOL).priceSol;
-  }
-
-  const trade: Trade = {
-    id: fakeId(rng),
-    mint: c.mint,
-    ticker: c.ticker,
-    side: input.side,
-    sol,
-    tokens,
-    wallet: input.wallet,
-    ts: Date.now(),
-    source,
-  };
-  const list = world.trades.get(c.mint) ?? [];
-  list.unshift(trade);
-  world.trades.set(c.mint, list);
-  refresh(c);
-  updateCandle(c.mint, c.priceSol);
-  pushEvent({ id: trade.id, kind: trade.side, mint: c.mint, ticker: c.ticker, emoji: c.emoji, hue: c.hue, sol, wallet: input.wallet, ts: trade.ts });
-  if (graduated) pushEvent({ id: fakeId(rng), kind: "graduate", mint: c.mint, ticker: c.ticker, emoji: c.emoji, hue: c.hue, ts: Date.now() });
-  touch(c.mint);
-  return { trade, coin: c, graduated };
-}
-
-export function launchCoin(input: LaunchInput): Coin {
-  if (!input.creator) throw new Error("Connect a wallet first");
+/** Step 1 of a launch: validate + park metadata so the token URI resolves immediately. */
+export async function prepareLaunch(input: PrepareLaunchInput): Promise<{ uri: string; name: string; symbol: string }> {
+  if (!isPubkey(input.creator)) throw new Error("Connect a wallet first");
+  if (!isPubkey(input.mint)) throw new Error("Invalid mint");
   const ticker = String(input.ticker ?? "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 8);
+    .slice(0, 10);
   const name = String(input.name ?? "").trim().slice(0, 32);
-  if (!ticker || ticker.length < 2) throw new Error("Ticker must be 2–8 letters or numbers");
+  if (ticker.length < 2) throw new Error("Ticker must be 2–10 letters or numbers");
   if (name.length < 2) throw new Error("Name is too short");
-  if (input.imageUrl && input.imageUrl.length > 1_400_000) throw new Error("Image too large (max ~1 MB)");
-  const devBuy = Math.max(0, Math.min(20, Number(input.devBuySol) || 0));
-  const mint = fakeAddress(rng);
-  const now = Date.now();
-  const coin: Coin = {
-    mint,
+  if (input.imageDataUrl && input.imageDataUrl.length > 1_400_000) throw new Error("Image too large (max ~1 MB)");
+  if (input.imageDataUrl && !/^data:image\/[a-z+.-]+;base64,/.test(input.imageDataUrl)) throw new Error("Unsupported image");
+  const socials = {
+    twitter: input.socials?.twitter?.trim() || undefined,
+    telegram: input.socials?.telegram?.trim() || undefined,
+    website: input.socials?.website?.trim() || undefined,
+  };
+  // Expire stale pending launches (never registered within an hour)
+  for (const [m, p] of world.pending) if (Date.now() - p.createdAt > HOUR && !world.coins.has(m)) {
+    world.pending.delete(m);
+    world.images.delete(m);
+  }
+  if (input.imageDataUrl) world.images.set(input.mint, input.imageDataUrl);
+  let uri = `${SITE_URL}/api/meta/${input.mint}`;
+  try {
+    const pinned = await chain.pinToIpfs(name, ticker, String(input.description ?? "").trim().slice(0, 500), input.imageDataUrl, socials);
+    if (pinned) uri = pinned;
+  } catch (e) {
+    console.error("[store] IPFS pin failed, falling back to hosted metadata", e instanceof Error ? e.message : e);
+  }
+  world.pending.set(input.mint, {
+    ...input,
     name,
     ticker,
-    description: String(input.description ?? "").trim().slice(0, 280),
+    description: String(input.description ?? "").trim().slice(0, 500),
     emoji: input.emoji || "🪙",
-    hue: hashStr(ticker + mint) % 360,
-    imageUrl: input.imageUrl || undefined,
+    socials,
+    imageDataUrl: undefined,
+    createdAt: Date.now(),
+    uri,
+  });
+  save();
+  return { uri, name, symbol: ticker };
+}
+
+/** Step 3 of a launch: the create transaction confirmed; verify it and list the coin. */
+export async function registerCoin(input: RegisterCoinInput): Promise<Coin> {
+  if (!isPubkey(input.mint) || !isPubkey(input.creator)) throw new Error("Invalid request");
+  if (world.coins.has(input.mint)) return pub(world.coins.get(input.mint)!);
+  const p = world.pending.get(input.mint);
+  if (!p) throw new Error("Launch was not prepared on this server");
+  if (p.creator !== input.creator) throw new Error("Creator mismatch");
+  if (world.signatures.has(input.signature)) throw new Error("Transaction already used");
+  const v = await chain.verifyTx(input.signature, input.creator, input.mint);
+  if (!v.involvesMint || !v.involvesPump) throw new Error("Transaction did not create this token on pump.fun");
+  let curve: CurveSnapshot | null = null;
+  for (let i = 0; i < 6 && !curve; i++) {
+    curve = await chain.readCurve(input.mint);
+    if (!curve) await new Promise((r) => setTimeout(r, 1500));
+  }
+  if (!curve) throw new Error("Bonding curve not found yet. Retry in a few seconds.");
+  const coin: Coin = {
+    mint: input.mint,
+    name: p.name,
+    ticker: p.ticker,
+    description: p.description,
+    emoji: p.emoji,
+    hue: hashStr(p.ticker + input.mint) % 360,
+    imageUrl: world.images.has(input.mint) ? `/api/meta/${input.mint}/image` : undefined,
+    metadataUri: p.uri,
+    signature: input.signature,
     creator: input.creator,
-    createdAt: now,
-    realSol: 0,
-    priceSol: 0,
-    marketCapSol: 0,
-    marketCapUsd: 0,
-    curvePct: 0,
+    createdAt: v.blockTime,
+    curve,
+    realSol: curve.realSol,
+    priceSol: priceOf(curve),
+    marketCapSol: marketCapOf(curve),
+    marketCapUsd: marketCapOf(curve) * solUsd,
+    curvePct: progressOf(curve),
     holders: 0,
     volume24hSol: 0,
     change24h: 0,
     replies: 0,
-    graduated: false,
-    devLock: !!input.devLock,
-    devBuySol: devBuy,
-    socials: {
-      twitter: input.socials?.twitter?.trim() || undefined,
-      telegram: input.socials?.telegram?.trim() || undefined,
-      website: input.socials?.website?.trim() || undefined,
-    },
-    rug: { devWalletPct: 0, top10Pct: 0, bundledBuys: 0, bundledDetected: false, devSold: false, devLocked: !!input.devLock, score: 0, grade: "C", notes: [] },
+    graduated: curve.complete,
+    devLock: false,
+    devBuySol: 0,
+    socials: p.socials,
+    rug: { devWalletPct: 0, top10Pct: 0, bundledBuys: 0, bundledDetected: false, devSold: false, devLocked: false, score: 80, grade: "B", notes: ["Fresh launch"] },
     attribution: [],
     topSource: null,
   };
-  world.coins.set(mint, coin);
-  world.trades.set(mint, []);
-  world.comments.set(mint, []);
-  const p0 = curveState(0).priceSol;
-  world.candles.set(mint, [{ time: Math.floor(now / 1000) - (Math.floor(now / 1000) % 300), open: p0, high: p0, low: p0, close: p0 }]);
-  refresh(coin);
-  pushEvent({ id: fakeId(rng), kind: "launch", mint, ticker, emoji: coin.emoji, hue: coin.hue, ts: now });
-  touch(mint);
-  if (devBuy > 0) executeTrade({ mint, side: "buy", amount: devBuy, slippagePct: 50, wallet: input.creator, ref: null });
-  return coin;
+  world.coins.set(input.mint, coin);
+  world.trades.set(input.mint, []);
+  world.comments.set(input.mint, []);
+  world.pending.delete(input.mint);
+  world.signatures.add(input.signature);
+  const p0 = (30 / 1_073_000_000);
+  const t0 = Math.floor(v.blockTime / 1000);
+  world.candles.set(input.mint, [{ time: t0 - (t0 % 300), open: p0, high: Math.max(p0, coin.priceSol), low: Math.min(p0, coin.priceSol), close: coin.priceSol }]);
+  pushEvent({ id: fakeId(rng), kind: "launch", mint: input.mint, ticker: coin.ticker, emoji: coin.emoji, hue: coin.hue, ts: v.blockTime });
+  if (v.tokenDelta > 0) {
+    const devSol = Math.abs(v.solDelta);
+    coin.devBuySol = +devSol.toFixed(4);
+    const trade: Trade = { id: fakeId(rng), signature: input.signature, mint: input.mint, ticker: coin.ticker, side: "buy", sol: devSol, tokens: v.tokenDelta, wallet: input.creator, ts: v.blockTime, source: DIRECT };
+    world.trades.get(input.mint)!.unshift(trade);
+    pushEvent({ id: trade.id, kind: "buy", mint: input.mint, ticker: coin.ticker, emoji: coin.emoji, hue: coin.hue, sol: devSol, wallet: input.creator, ts: v.blockTime });
+  }
+  recomputeAttribution(coin);
+  void refreshHolders(coin, true);
+  touch(input.mint);
+  return pub(coin);
+}
+
+/** A buy/sell signed in the browser confirmed on-chain; verify and attribute it. */
+export async function recordTrade(input: RecordTradeInput): Promise<{ trade: Trade; coin: Coin; graduated: boolean }> {
+  const c = world.coins.get(input.mint);
+  if (!c) throw new Error("Coin not found");
+  if (!isPubkey(input.wallet)) throw new Error("Connect a wallet first");
+  if (!input.signature || world.signatures.has(input.signature)) throw new Error("Transaction already recorded");
+  const v = await chain.verifyTx(input.signature, input.wallet, input.mint);
+  if (!v.involvesMint) throw new Error("Transaction does not touch this token");
+  if (Math.abs(v.tokenDelta) < 1e-9) throw new Error("No token movement in this transaction");
+  const side = v.tokenDelta > 0 ? "buy" : "sell";
+  const sol = Math.abs(v.solDelta);
+  const tokens = Math.abs(v.tokenDelta);
+  const source = side === "buy" ? sourceForRef(input.ref) : null;
+  if (source && source.kind === "referral") {
+    const link = world.referralLinks.get(source.id.slice(4));
+    if (link) {
+      const prior = (world.trades.get(c.mint) ?? []).some((t) => t.wallet === input.wallet && t.side === "buy");
+      link.buys += 1;
+      link.volumeSol += sol;
+      if (!prior) link.uniqueBuyers += 1;
+    }
+  }
+  const trade: Trade = { id: fakeId(rng), signature: input.signature, mint: c.mint, ticker: c.ticker, side, sol, tokens, wallet: input.wallet, ts: v.blockTime, source };
+  const list = world.trades.get(c.mint) ?? [];
+  list.unshift(trade);
+  list.sort((a, b) => b.ts - a.ts);
+  world.trades.set(c.mint, list);
+  world.signatures.add(input.signature);
+  const wasGraduated = c.graduated;
+  await refreshCurve(c, true);
+  recomputeAttribution(c);
+  void refreshHolders(c, true);
+  pushEvent({ id: trade.id, kind: side, mint: c.mint, ticker: c.ticker, emoji: c.emoji, hue: c.hue, sol, wallet: input.wallet, ts: trade.ts });
+  touch(c.mint);
+  return { trade, coin: pub(c), graduated: c.graduated && !wasGraduated };
 }
 
 export function createReferralLink(wallet: string, label: string, mint?: string): ReferralLink {
-  if (!wallet) throw new Error("Connect a wallet first");
+  if (!isPubkey(wallet)) throw new Error("Connect a wallet first");
   const code = refCode();
   const coin = mint ? world.coins.get(mint) : undefined;
   const link: ReferralLink = {
@@ -623,7 +752,7 @@ export function recordClick(code: string) {
 
 export function postComment(mint: string, wallet: string, text: string): Comment {
   if (!world.coins.has(mint)) throw new Error("Coin not found");
-  if (!wallet) throw new Error("Connect a wallet first");
+  if (!isPubkey(wallet)) throw new Error("Connect a wallet first");
   const body = String(text ?? "").trim().slice(0, 280);
   if (body.length < 2) throw new Error("Comment is too short");
   const c: Comment = { id: fakeId(rng), mint, wallet, text: body, ts: Date.now() };
@@ -633,3 +762,5 @@ export function postComment(mint: string, wallet: string, text: string): Comment
   touch(mint);
   return c;
 }
+
+export { INITIAL_REAL_TOKENS };

@@ -43,6 +43,17 @@ export interface CoinSocials {
   website?: string;
 }
 
+/** Live bonding-curve reserves read from the pump.fun program (human units: SOL and whole tokens). */
+export interface CurveSnapshot {
+  vSol: number;
+  vTokens: number;
+  realSol: number;
+  realTokens: number;
+  totalSupply: number;
+  complete: boolean;
+  updatedAt: number;
+}
+
 export interface Coin {
   mint: string;
   name: string;
@@ -52,9 +63,14 @@ export interface Coin {
   emoji: string;
   hue: number;
   imageUrl?: string;
+  /** Token metadata URI registered on-chain */
+  metadataUri: string;
+  /** Signature of the create transaction */
+  signature: string;
   creator: string;
   createdAt: number;
-  /** Real SOL collected on the bonding curve (drives price via lib/curve.ts) */
+  curve: CurveSnapshot;
+  /** Real SOL collected on the bonding curve */
   realSol: number;
   priceSol: number;
   marketCapSol: number;
@@ -77,6 +93,7 @@ export interface Coin {
 
 export interface Trade {
   id: string;
+  signature: string;
   mint: string;
   ticker: string;
   side: TradeSide;
@@ -173,8 +190,10 @@ export interface Quote {
   pricePerTokenSol: number;
   minReceived: number;
   feeSol: number;
+  graduates: boolean;
 }
 
+/** Form state for the launch page. */
 export interface LaunchInput {
   name: string;
   ticker: string;
@@ -187,14 +206,43 @@ export interface LaunchInput {
   creator: string;
 }
 
-export interface TradeInput {
+/** Step 1 of a launch: park metadata so the token URI resolves before the mint exists. */
+export interface PrepareLaunchInput {
   mint: string;
-  side: TradeSide;
-  /** SOL amount for buys, token amount for sells */
-  amount: number;
-  slippagePct: number;
+  name: string;
+  ticker: string;
+  description: string;
+  imageDataUrl?: string;
+  emoji: string;
+  socials: CoinSocials;
+  creator: string;
+}
+
+/** Step 3 of a launch: the create transaction confirmed on-chain. */
+export interface RegisterCoinInput {
+  mint: string;
+  signature: string;
+  creator: string;
+}
+
+export interface RecordTradeInput {
+  signature: string;
+  mint: string;
   wallet: string;
+  side: TradeSide;
   ref?: string | null;
+}
+
+/** Request for a PumpPortal local transaction (built server-side, signed in the browser). */
+export interface PumpTxRequest {
+  action: "create" | "buy" | "sell";
+  publicKey: string;
+  mint: string;
+  amount: number | string;
+  denominatedInSol: boolean;
+  slippage: number;
+  priorityFee?: number;
+  tokenMetadata?: { name: string; symbol: string; uri: string };
 }
 
 /** Payload returned by the sync endpoint for live updates. */

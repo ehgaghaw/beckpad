@@ -4,11 +4,11 @@ import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
-import { clusterApiUrl } from "@solana/web3.js";
 import { Toaster } from "sonner";
 import { useLiveUpdates } from "@/lib/hooks";
 
-const ENDPOINT = process.env.NEXT_PUBLIC_SOLANA_RPC ?? clusterApiUrl("devnet");
+/** Mainnet: coins are created and traded on pump.fun's live bonding curve. */
+const ENDPOINT = process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.mainnet-beta.solana.com";
 
 function Live() {
   useLiveUpdates();
@@ -18,11 +18,9 @@ function Live() {
 export function Providers({ children }: { children: React.ReactNode }) {
   // Installed Wallet Standard wallets (Phantom, Backpack, …) are auto-detected. Phantom and
   // Solflare are also listed explicitly so they appear with an install link when missing.
-  // The app only ever asks to connect; it never requests a signature, so wallets show the
-  // plain connect prompt.
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
   return (
-    <ConnectionProvider endpoint={ENDPOINT}>
+    <ConnectionProvider endpoint={ENDPOINT} config={{ commitment: "confirmed" }}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <Live />

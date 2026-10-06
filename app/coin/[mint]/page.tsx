@@ -83,7 +83,12 @@ export default function CoinPage(props: PageProps<"/coin/[mint]">) {
                 </Link>
               </span>
               <span>{timeAgo(coin.createdAt)}</span>
-              <span className="font-mono hidden sm:inline">{shortAddr(coin.mint, 6)}</span>
+              <a href={`https://solscan.io/token/${coin.mint}`} target="_blank" rel="noreferrer" className="font-mono hidden sm:inline hover:text-white" title="View token on Solscan">
+                {shortAddr(coin.mint, 6)}
+              </a>
+              <a href={`https://pump.fun/coin/${coin.mint}`} target="_blank" rel="noreferrer" className="hover:text-white">
+                pump.fun ↗
+              </a>
               {coin.socials.twitter && (
                 <a href={coin.socials.twitter} target="_blank" rel="noreferrer" className="hover:text-white">
                   𝕏
@@ -143,7 +148,7 @@ export default function CoinPage(props: PageProps<"/coin/[mint]">) {
               <p className="text-[11px] text-muted mt-2">
                 {coin.graduated
                   ? "Curve complete — liquidity migrated to the DEX pool."
-                  : `${(85 * (1 - coin.curvePct / 100)).toFixed(1)} SOL left on the curve. At 85 SOL the pool graduates and LP is burned.`}
+                  : `${coin.realSol.toFixed(2)} SOL collected on the pump.fun curve. It graduates to a DEX pool at roughly 85 SOL.`}
               </p>
             </div>
             {!coin.graduated && <Countdown target={target} label="est. graduation" />}

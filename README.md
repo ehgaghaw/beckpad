@@ -1,6 +1,8 @@
 # BeckPad
 
-Attribution-first Solana memecoin launchpad (pump.fun-style bonding curve) with a money / gaming aesthetic.
+Attribution-first Solana memecoin launchpad with a money / gaming aesthetic. Coins are **real SPL tokens on
+Solana mainnet**: BeckPad creates them on the pump.fun bonding curve and routes buys/sells through it, with the
+connected wallet signing every transaction. BeckPad adds the attribution layer on top.
 Every buy on a coin is traced back to the referral link, X post or caller that drove it, so you can see who
 actually brings volume and who is just shilling. Callers rank up through gaming tiers on **tracked volume**,
 not follower count. A Rug Check grade (A–F) and a visible dev-lock badge sit on every coin.
@@ -26,12 +28,28 @@ Phantom, Solflare and Backpack connect through `@solana/wallet-adapter`. Nothing
 so you can also click **Use a demo wallet** in any trade panel; it creates a per-browser address so buys,
 sells, launches, comments and referral links all work immediately.
 
+### How a launch works (real, on mainnet)
+
+1. The browser generates a mint keypair and calls `prepareLaunch`: the server parks the metadata and serves it at
+   `/api/meta/<mint>` (or pins it to IPFS when `PINATA_JWT` is set).
+2. The server asks PumpPortal's local-transaction API for an unsigned `create` transaction (token + curve + dev buy).
+3. The browser signs it with the mint keypair and the connected wallet, sends it, and waits for confirmation.
+4. `registerCoin` verifies the signature on-chain (signed by the creator, touches the mint and the pump.fun program),
+   reads the bonding curve account, and lists the coin.
+
+Buys and sells follow the same pattern (`buildTx` → wallet signs → `recordTrade` verifies the transaction's SOL and
+token balance changes on-chain and attributes it to the referral cookie). Nothing is trusted from the client.
+
 ### Data
 
-There is no seeded data. The site starts empty and fills with the coins people launch. Everything lives in a
-server-side store (`lib/store.ts`) persisted to `DATA_DIR/beckpad.json` (default `./data`). On Railway the
-service has a volume mounted at `/data` with `DATA_DIR=/data`, so coins survive restarts and redeploys.
-The browser polls `/api/rpc` (`sync`) every 2.5s for live trades, launches and graduations.
+There is no seeded data. The bonding curve, price and holders are read live from Solana (`lib/chain.ts`). BeckPad's
+own store (`lib/store.ts`) keeps coin metadata, trades routed through BeckPad, referral links, comments and derived
+stats, persisted to `DATA_DIR/beckpad.json`. On Railway the service has a volume at `/data` with `DATA_DIR=/data`.
+The browser polls `/api/rpc` (`sync`) every 3s for live updates.
+
+Env: `SOLANA_RPC` (server reads/verification), `NEXT_PUBLIC_SOLANA_RPC` (browser sends transactions), both default to
+the public mainnet RPC; use a Helius/Triton/QuickNode URL in production. `NEXT_PUBLIC_SITE_URL` for metadata URIs.
+`PINATA_JWT` optional for IPFS metadata.
 
 ## What's in Phase 1
 

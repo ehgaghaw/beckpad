@@ -29,7 +29,7 @@ export function CoinCard({ coin }: { coin: Coin }) {
             <span className="text-xs text-muted font-semibold">${coin.ticker}</span>
           </div>
           <div className="text-[11px] text-muted flex items-center gap-2">
-            <span>{timeAgo(coin.createdAt)}</span>
+            <span>{coin.createdAt ? timeAgo(coin.createdAt) : "just now"}</span>
             {coin.devLock && <span className="text-green">🔒 dev locked</span>}
           </div>
           <div className="mt-1 flex items-center gap-2">

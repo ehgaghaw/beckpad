@@ -1,43 +1,41 @@
 /**
- * pump.fun-style constant-product bonding curve with virtual reserves.
- * Mirrors what the Phase 2 Anchor program will implement on-chain.
+ * pump.fun bonding-curve maths (constant product over virtual reserves).
+ * Quotes run on a CurveSnapshot read from chain, so they track the real curve.
  */
-export const TOTAL_SUPPLY = 1_000_000_000; // 1B tokens
-export const VIRTUAL_SOL = 30; // initial virtual SOL reserve
-export const VIRTUAL_TOKENS = 1_073_000_000; // initial virtual token reserve
-export const GRADUATION_SOL = 85; // real SOL collected to graduate
-export const FEE_BPS = 100; // 1% protocol fee
-export const K = VIRTUAL_SOL * VIRTUAL_TOKENS;
+import type { CurveSnapshot } from "@/types";
 
-export interface CurveState {
-  realSol: number;
-  virtualSol: number;
-  virtualTokens: number;
-  tokensSold: number;
-  priceSol: number;
-  marketCapSol: number;
-  pct: number;
-}
+export const TOTAL_SUPPLY = 1_000_000_000;
+export const VIRTUAL_SOL = 30;
+export const VIRTUAL_TOKENS = 1_073_000_000;
+export const INITIAL_REAL_TOKENS = 793_100_000;
+export const GRADUATION_SOL = 85;
+/** pump.fun protocol fee (1%) + PumpPortal routing fee (0.5%) */
+export const FEE_BPS = 150;
 
-export function curveState(realSol: number): CurveState {
-  const r = Math.max(0, Math.min(GRADUATION_SOL, realSol));
-  const virtualSol = VIRTUAL_SOL + r;
-  const virtualTokens = K / virtualSol;
-  const tokensSold = VIRTUAL_TOKENS - virtualTokens;
-  const priceSol = virtualSol / virtualTokens;
+export function initialSnapshot(): CurveSnapshot {
   return {
-    realSol: r,
-    virtualSol,
-    virtualTokens,
-    tokensSold,
-    priceSol,
-    marketCapSol: priceSol * TOTAL_SUPPLY,
-    pct: (r / GRADUATION_SOL) * 100,
+    vSol: VIRTUAL_SOL,
+    vTokens: VIRTUAL_TOKENS,
+    realSol: 0,
+    realTokens: INITIAL_REAL_TOKENS,
+    totalSupply: TOTAL_SUPPLY,
+    complete: false,
+    updatedAt: 0,
   };
 }
 
-export function applyFee(sol: number) {
-  return sol * (1 - FEE_BPS / 10_000);
+export function priceOf(s: CurveSnapshot) {
+  return s.vTokens > 0 ? s.vSol / s.vTokens : 0;
+}
+
+export function marketCapOf(s: CurveSnapshot) {
+  return priceOf(s) * (s.totalSupply || TOTAL_SUPPLY);
+}
+
+export function progressOf(s: CurveSnapshot) {
+  if (s.complete) return 100;
+  const byTokens = (1 - s.realTokens / INITIAL_REAL_TOKENS) * 100;
+  return Math.max(0, Math.min(100, byTokens));
 }
 
 export interface BuyQuote {
@@ -45,70 +43,63 @@ export interface BuyQuote {
   solNet: number;
   feeSol: number;
   tokensOut: number;
-  newRealSol: number;
   priceBefore: number;
   priceAfter: number;
   priceImpactPct: number;
   graduates: boolean;
+  next: CurveSnapshot;
 }
 
-export function quoteBuy(realSol: number, solIn: number): BuyQuote {
-  const s = curveState(realSol);
-  const remaining = GRADUATION_SOL - s.realSol;
+export function quoteBuy(s: CurveSnapshot, solIn: number): BuyQuote {
   const feeSol = solIn * (FEE_BPS / 10_000);
-  let solNet = solIn - feeSol;
+  const solNet = Math.max(0, solIn - feeSol);
+  const k = s.vSol * s.vTokens;
+  const newVSol = s.vSol + solNet;
+  let tokensOut = s.vTokens - k / newVSol;
   let graduates = false;
-  if (solNet >= remaining) {
-    solNet = remaining;
+  if (tokensOut >= s.realTokens) {
+    tokensOut = s.realTokens;
     graduates = true;
   }
-  const newVirtualSol = s.virtualSol + solNet;
-  const newVirtualTokens = K / newVirtualSol;
-  const tokensOut = s.virtualTokens - newVirtualTokens;
-  const priceAfter = newVirtualSol / newVirtualTokens;
+  const newVTokens = s.vTokens - tokensOut;
+  const priceBefore = priceOf(s);
+  const priceAfter = newVSol / newVTokens;
   return {
     solIn,
     solNet,
     feeSol,
     tokensOut,
-    newRealSol: s.realSol + solNet,
-    priceBefore: s.priceSol,
+    priceBefore,
     priceAfter,
-    priceImpactPct: ((priceAfter - s.priceSol) / s.priceSol) * 100,
+    priceImpactPct: priceBefore > 0 ? ((priceAfter - priceBefore) / priceBefore) * 100 : 0,
     graduates,
+    next: { ...s, vSol: newVSol, vTokens: newVTokens, realSol: s.realSol + solNet, realTokens: s.realTokens - tokensOut, complete: graduates, updatedAt: Date.now() },
   };
 }
 
 export interface SellQuote {
   tokensIn: number;
+  solGross: number;
   solOut: number;
   feeSol: number;
-  newRealSol: number;
   priceBefore: number;
   priceAfter: number;
   priceImpactPct: number;
 }
 
-export function quoteSell(realSol: number, tokensIn: number): SellQuote {
-  const s = curveState(realSol);
-  const t = Math.max(0, Math.min(tokensIn, s.tokensSold));
-  const newVirtualTokens = s.virtualTokens + t;
-  const newVirtualSol = K / newVirtualTokens;
-  const solGross = s.virtualSol - newVirtualSol;
+export function quoteSell(s: CurveSnapshot, tokensIn: number): SellQuote {
+  const t = Math.max(0, tokensIn);
+  const solGross = (t * s.vSol) / (s.vTokens + t);
   const feeSol = solGross * (FEE_BPS / 10_000);
-  const priceAfter = newVirtualSol / newVirtualTokens;
+  const priceBefore = priceOf(s);
+  const priceAfter = (s.vSol - solGross) / (s.vTokens + t);
   return {
     tokensIn: t,
+    solGross,
     solOut: solGross - feeSol,
     feeSol,
-    newRealSol: Math.max(0, s.realSol - solGross),
-    priceBefore: s.priceSol,
+    priceBefore,
     priceAfter,
-    priceImpactPct: ((priceAfter - s.priceSol) / s.priceSol) * 100,
+    priceImpactPct: priceBefore > 0 ? ((priceAfter - priceBefore) / priceBefore) * 100 : 0,
   };
-}
-
-/** Rough tokens-for-SOL at spot price, used for display only. */
-export function tokensAtSpot(realSol: number, sol: number) {
-  return sol / curveState(realSol).priceSol;
 }

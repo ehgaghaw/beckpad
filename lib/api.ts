@@ -1,7 +1,7 @@
 /**
- * Client-side API. Every call goes to /api/rpc, which is backed by lib/store.ts.
- * Live updates are polled through `sync` and fanned out to subscribers so
- * components can react to trades, launches and coin changes.
+ * Client-side API. Every call goes to /api/rpc, which is backed by lib/store.ts
+ * (registry + attribution) and lib/chain.ts (Solana reads, PumpPortal tx builder).
+ * Live updates are polled through `sync` and fanned out to subscribers.
  */
 import { quoteBuy, quoteSell } from "./curve";
 import type {
@@ -11,15 +11,17 @@ import type {
   CoinTab,
   Comment,
   Holder,
-  LaunchInput,
   LiveEvent,
+  PrepareLaunchInput,
   Profile,
+  PumpTxRequest,
   Quote,
   Range,
+  RecordTradeInput,
   ReferralLink,
+  RegisterCoinInput,
   SyncResult,
   Trade,
-  TradeInput,
 } from "@/types";
 
 export type WorldEvent = { type: "live"; event: LiveEvent } | { type: "coin"; coin: Coin } | { type: "trade"; trade: Trade };
@@ -71,11 +73,10 @@ function schedule(ms: number) {
   if (poll.timer) window.clearTimeout(poll.timer);
   poll.timer = window.setTimeout(async () => {
     await pollOnce();
-    schedule(2500);
+    schedule(3000);
   }, ms);
 }
 
-/** Immediate refresh after a mutation we made ourselves. */
 function pollNow() {
   schedule(0);
 }
@@ -90,9 +91,27 @@ export const api = {
   getHolders: (mint: string) => rpc<Holder[]>("getHolders", mint),
   getComments: (mint: string) => rpc<Comment[]>("getComments", mint),
   getCandles: (mint: string) => rpc<Candle[]>("getCandles", mint),
+  /** On-chain token balance of a wallet */
   getPosition: (wallet: string, mint: string) => rpc<number>("getPosition", wallet, mint),
   getLeaderboard: (range: Range) => rpc<Caller[]>("getLeaderboard", range),
   getProfile: (wallet: string) => rpc<Profile>("getProfile", wallet),
+
+  /** Build an unsigned pump.fun transaction (base64) to sign in the wallet. */
+  buildTx: (req: PumpTxRequest) => rpc<string>("buildTx", req),
+
+  prepareLaunch: (input: PrepareLaunchInput) => rpc<{ uri: string; name: string; symbol: string }>("prepareLaunch", input),
+
+  async registerCoin(input: RegisterCoinInput) {
+    const c = await rpc<Coin>("registerCoin", input);
+    pollNow();
+    return c;
+  },
+
+  async recordTrade(input: RecordTradeInput) {
+    const r = await rpc<{ trade: Trade; coin: Coin; graduated: boolean }>("recordTrade", input);
+    pollNow();
+    return r;
+  },
 
   async postComment(mint: string, wallet: string, text: string) {
     const c = await rpc<Comment>("postComment", mint, wallet, text);
@@ -100,31 +119,17 @@ export const api = {
     return c;
   },
 
-  async executeTrade(input: TradeInput) {
-    const r = await rpc<{ trade: Trade; coin: Coin; graduated: boolean }>("executeTrade", input);
-    pollNow();
-    return r;
-  },
-
-  async launchCoin(input: LaunchInput) {
-    const c = await rpc<Coin>("launchCoin", input);
-    pollNow();
-    return c;
-  },
-
-  async createReferralLink(wallet: string, label: string, mint?: string) {
-    return rpc<ReferralLink>("createReferralLink", wallet, label, mint);
-  },
+  createReferralLink: (wallet: string, label: string, mint?: string) => rpc<ReferralLink>("createReferralLink", wallet, label, mint),
 
   recordRefClick(code: string) {
     rpc<boolean>("recordRefClick", code).catch(() => {});
   },
 
-  /** Synchronous quote preview from the coin's current curve state. */
+  /** Synchronous quote preview from the coin's latest on-chain curve snapshot. */
   getQuote(coin: Coin, side: "buy" | "sell", amount: number, slippagePct: number): Quote | null {
     if (coin.graduated || !(amount > 0)) return null;
     if (side === "buy") {
-      const q = quoteBuy(coin.realSol, amount);
+      const q = quoteBuy(coin.curve, amount);
       return {
         side,
         inputAmount: amount,
@@ -134,9 +139,10 @@ export const api = {
         pricePerTokenSol: q.solNet / Math.max(q.tokensOut, 1e-9),
         minReceived: q.tokensOut * (1 - slippagePct / 100),
         feeSol: q.feeSol,
+        graduates: q.graduates,
       };
     }
-    const q = quoteSell(coin.realSol, amount);
+    const q = quoteSell(coin.curve, amount);
     return {
       side,
       inputAmount: amount,
@@ -146,6 +152,7 @@ export const api = {
       pricePerTokenSol: q.solOut / Math.max(q.tokensIn, 1e-9),
       minReceived: q.solOut * (1 - slippagePct / 100),
       feeSol: q.feeSol,
+      graduates: false,
     };
   },
 
