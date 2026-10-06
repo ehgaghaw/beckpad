@@ -107,19 +107,33 @@ export async function verifyTx(signature: string, wallet: string, mint: string):
   };
 }
 
+export function creatorVaultPda(creator: string) {
+  return PublicKey.findProgramAddressSync([Buffer.from("creator-vault"), new PublicKey(creator).toBuffer()], PUMP_PROGRAM)[0];
+}
+
+/** Claimable creator fees sitting in the pump.fun creator vault (lamports minus rent). */
+export async function creatorVaultBalance(creator: string): Promise<{ claimableSol: number; vault: string }> {
+  const vault = creatorVaultPda(creator);
+  const [lamports, rent] = await Promise.all([connection.getBalance(vault, "confirmed"), connection.getMinimumBalanceForRentExemption(0)]);
+  return { claimableSol: Math.max(0, lamports - rent) / 1e9, vault: vault.toBase58() };
+}
+
 /** Ask PumpPortal for an unsigned transaction; returns base64 bytes. */
 export async function buildPumpTx(req: PumpTxRequest): Promise<string> {
-  const body = {
-    publicKey: req.publicKey,
-    action: req.action,
-    mint: req.mint,
-    amount: req.amount,
-    denominatedInSol: req.denominatedInSol ? "true" : "false",
-    slippage: req.slippage,
-    priorityFee: req.priorityFee ?? 0.0005,
-    pool: "pump",
-    ...(req.action === "create" ? { tokenMetadata: req.tokenMetadata } : {}),
-  };
+  const body =
+    req.action === "collectCreatorFee"
+      ? { publicKey: req.publicKey, action: "collectCreatorFee", priorityFee: req.priorityFee ?? 0.0003 }
+      : {
+          publicKey: req.publicKey,
+          action: req.action,
+          mint: req.mint,
+          amount: req.amount,
+          denominatedInSol: req.denominatedInSol ? "true" : "false",
+          slippage: req.slippage,
+          priorityFee: req.priorityFee ?? 0.0005,
+          pool: "pump",
+          ...(req.action === "create" ? { tokenMetadata: req.tokenMetadata } : {}),
+        };
   const res = await fetch(PUMPPORTAL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

@@ -10,6 +10,7 @@ import type {
   Coin,
   CoinTab,
   Comment,
+  CreatorFees,
   Holder,
   LiveEvent,
   PrepareLaunchInput,
@@ -98,6 +99,9 @@ export const api = {
 
   /** Build an unsigned pump.fun transaction (base64) to sign in the wallet. */
   buildTx: (req: PumpTxRequest) => rpc<string>("buildTx", req),
+
+  /** Creator fees waiting in the pump.fun creator vault for this wallet. */
+  getCreatorFees: (wallet: string) => rpc<CreatorFees>("getCreatorFees", wallet),
 
   prepareLaunch: (input: PrepareLaunchInput) => rpc<{ uri: string; name: string; symbol: string }>("prepareLaunch", input),
 

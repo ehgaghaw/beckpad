@@ -5,6 +5,7 @@ import { useAsync, useWorldEvents } from "@/lib/hooks";
 import { useIdentity } from "@/lib/wallet";
 import { ProfileHeader } from "@/components/profile/ProfileHeader";
 import { ReferralLinks } from "@/components/profile/ReferralLinks";
+import { CreatorFees } from "@/components/profile/CreatorFees";
 import { CoinCard } from "@/components/coin/CoinCard";
 import { Skeleton, CardSkeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -40,6 +41,8 @@ export default function ProfilePage(props: PageProps<"/profile/[wallet]">) {
   return (
     <div className="pt-6 space-y-5">
       <ProfileHeader profile={data} isSelf={isSelf} />
+
+      {isSelf && <CreatorFees wallet={wallet} launches={data.launches.length} />}
 
       <ReferralLinks
         wallet={wallet}

@@ -235,14 +235,20 @@ export interface RecordTradeInput {
 
 /** Request for a PumpPortal local transaction (built server-side, signed in the browser). */
 export interface PumpTxRequest {
-  action: "create" | "buy" | "sell";
+  action: "create" | "buy" | "sell" | "collectCreatorFee";
   publicKey: string;
-  mint: string;
-  amount: number | string;
-  denominatedInSol: boolean;
-  slippage: number;
+  mint?: string;
+  amount?: number | string;
+  denominatedInSol?: boolean;
+  slippage?: number;
   priorityFee?: number;
   tokenMetadata?: { name: string; symbol: string; uri: string };
+}
+
+export interface CreatorFees {
+  /** SOL claimable from the pump.fun creator vault (bonding-curve trades) */
+  claimableSol: number;
+  vault: string;
 }
 
 /** Payload returned by the sync endpoint for live updates. */
