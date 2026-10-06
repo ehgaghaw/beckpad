@@ -8,7 +8,8 @@ import { Toaster } from "sonner";
 import { useLiveUpdates } from "@/lib/hooks";
 
 /** Mainnet: coins are created and traded on pump.fun's live bonding curve. */
-const ENDPOINT = process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.mainnet-beta.solana.com";
+// PublicNode allows browser (CORS) requests; the official public RPC returns 403 to browsers.
+const ENDPOINT = process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://solana-rpc.publicnode.com";
 
 function Live() {
   useLiveUpdates();

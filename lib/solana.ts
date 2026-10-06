@@ -7,6 +7,16 @@ import type { PumpTxRequest } from "@/types";
 
 export const EXPLORER = (sig: string) => `https://solscan.io/tx/${sig}`;
 
+/** Thrown when a transaction was sent but confirmation could not be observed. */
+export class SentButUnconfirmed extends Error {
+  signature: string;
+  constructor(signature: string, message: string) {
+    super(message);
+    this.name = "SentButUnconfirmed";
+    this.signature = signature;
+  }
+}
+
 function fromBase64(b64: string) {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -29,17 +39,23 @@ export function usePumpTx() {
       onStatus?.("Approve in your wallet…");
       const signature = await wallet.sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
       onStatus?.("Confirming on Solana…");
-      const deadline = Date.now() + 75_000;
+      const deadline = Date.now() + 90_000;
+      let lastErr: string | null = null;
       while (Date.now() < deadline) {
-        const st = await connection.getSignatureStatuses([signature]);
-        const s = st.value[0];
-        if (s) {
-          if (s.err) throw new Error("Transaction failed on-chain (slippage or insufficient SOL)");
-          if (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized") return signature;
+        try {
+          const st = await connection.getSignatureStatuses([signature]);
+          const s = st.value[0];
+          if (s) {
+            if (s.err) throw new Error("Transaction failed on-chain (slippage or insufficient SOL)");
+            if (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized") return signature;
+          }
+        } catch (e) {
+          if (e instanceof Error && /failed on-chain/.test(e.message)) throw e;
+          lastErr = e instanceof Error ? e.message : String(e); // RPC hiccup: keep polling
         }
         await new Promise((r) => setTimeout(r, 1500));
       }
-      throw new Error(`Confirmation timed out. Check ${EXPLORER(signature)}`);
+      throw new SentButUnconfirmed(signature, `Sent, but confirmation could not be verified${lastErr ? ` (${lastErr.slice(0, 80)})` : ""}. Check ${EXPLORER(signature)}`);
     },
     [connection, wallet],
   );

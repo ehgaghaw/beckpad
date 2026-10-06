@@ -48,7 +48,7 @@ export default function CoinPage(props: PageProps<"/coin/[mint]">) {
   if (!coin) {
     return (
       <div className="pt-10">
-        <EmptyState icon="🕳️" title="COIN NOT FOUND" body="This mint is not on BeckPad (or the session was reset)." action={{ href: "/", label: "BACK TO COINS" }} />
+        <EmptyState icon="🕳️" title="COIN NOT FOUND" body="This mint is not on AlexPad (or the session was reset)." action={{ href: "/", label: "BACK TO COINS" }} />
       </div>
     );
   }

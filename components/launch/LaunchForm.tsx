@@ -6,7 +6,32 @@ import { toast } from "sonner";
 import { Keypair } from "@solana/web3.js";
 import { api } from "@/lib/api";
 import { useIdentity } from "@/lib/wallet";
-import { usePumpTx, EXPLORER } from "@/lib/solana";
+import { usePumpTx, EXPLORER, SentButUnconfirmed } from "@/lib/solana";
+import { useEffect } from "react";
+
+const PENDING_KEY = "alexpad_pending_launch";
+interface PendingLaunch {
+  mint: string;
+  signature: string;
+  creator: string;
+  ticker: string;
+}
+function readPending(): PendingLaunch | null {
+  try {
+    const raw = localStorage.getItem(PENDING_KEY);
+    return raw ? (JSON.parse(raw) as PendingLaunch) : null;
+  } catch {
+    return null;
+  }
+}
+function writePending(p: PendingLaunch | null) {
+  try {
+    if (p) localStorage.setItem(PENDING_KEY, JSON.stringify(p));
+    else localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 import { Modal } from "@/components/ui/Modal";
 import { CoinAvatar } from "@/components/ui/CoinAvatar";
 import { LaunchPreview } from "./LaunchPreview";
@@ -37,6 +62,35 @@ export function LaunchForm() {
   });
   const input: LaunchInput = { ...form, creator: id.address ?? "" };
   const set = <K extends keyof LaunchInput>(k: K, v: LaunchInput[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  /** Register a coin whose create transaction was sent; retries while the chain catches up. */
+  const register = async (mint: string, signature: string, creator: string) => {
+    let lastErr: unknown = null;
+    for (let i = 0; i < 8; i++) {
+      try {
+        return await api.registerCoin({ mint, signature, creator });
+      } catch (e) {
+        lastErr = e;
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error("Could not list the coin yet");
+  };
+
+  // A previous launch was sent but never listed (e.g. the page closed mid-confirmation): finish it.
+  useEffect(() => {
+    const p = readPending();
+    if (!p || !id.address || p.creator !== id.address) return;
+    const t = toast.loading(`Finishing your $${p.ticker} launch…`, { description: "Verifying the create transaction on Solana" });
+    register(p.mint, p.signature, p.creator)
+      .then((coin) => {
+        writePending(null);
+        toast.success(`$${coin.ticker} is listed`, { id: t });
+        router.push(`/coin/${coin.mint}`);
+      })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Could not finish the launch", { id: t, duration: 10000 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id.address]);
 
   const errors: string[] = [];
   if (form.name.trim().length < 2) errors.push("Name needs at least 2 characters");
@@ -75,30 +129,31 @@ export function LaunchForm() {
         socials: form.socials,
         creator: id.address,
       });
-      const signature = await sendTx(
-        {
-          action: "create",
-          mint,
-          amount: form.devBuySol,
-          denominatedInSol: true,
-          slippage: 10,
-          priorityFee: 0.0005,
-          tokenMetadata: { name: meta.name, symbol: meta.symbol, uri: meta.uri },
-        },
-        [mintKp],
-        status,
-      );
-      status("Confirmed. Listing on BeckPad…");
-      let coin = null;
-      for (let i = 0; i < 4 && !coin; i++) {
-        try {
-          coin = await api.registerCoin({ mint, signature, creator: id.address });
-        } catch (e) {
-          if (i === 3) throw e;
-          await new Promise((r) => setTimeout(r, 2500));
-        }
+      let signature: string;
+      try {
+        signature = await sendTx(
+          {
+            action: "create",
+            mint,
+            amount: form.devBuySol,
+            denominatedInSol: true,
+            slippage: 10,
+            priorityFee: 0.0005,
+            tokenMetadata: { name: meta.name, symbol: meta.symbol, uri: meta.uri },
+          },
+          [mintKp],
+          status,
+        );
+      } catch (e) {
+        // The wallet sent it but our RPC could not confirm: the server verifies on-chain anyway.
+        if (e instanceof SentButUnconfirmed) signature = e.signature;
+        else throw e;
       }
-      toast.success(`$${coin!.ticker} is live on Solana!`, {
+      writePending({ mint, signature, creator: id.address, ticker: meta.symbol });
+      status("Sent. Listing on AlexPad…");
+      const coin = await register(mint, signature, id.address);
+      writePending(null);
+      toast.success(`$${coin.ticker} is live on Solana!`, {
         id: t,
         description: "Token created on pump.fun. View the transaction on Solscan.",
         action: { label: "Solscan", onClick: () => window.open(EXPLORER(signature), "_blank") },

@@ -1,8 +1,8 @@
-# BeckPad indexer (Phase 2 plan)
+# AlexPad indexer (Phase 2 plan)
 
 Status: **stub / design only**.
 
-Turns on-chain `beckpad_curve` events into the data the frontend already consumes through `lib/api.ts`.
+Turns on-chain `alexpad_curve` events into the data the frontend already consumes through `lib/api.ts`.
 
 ## Pipeline
 

@@ -1,7 +1,7 @@
 @import "@solana/wallet-adapter-react-ui/styles.css";
 @import "tailwindcss";
 
-/* Palette pulled from the BeckPad pixel-art logo */
+/* Palette pulled from the AlexPad pixel-art logo */
 @theme {
   --color-bg: #12071f;
   --color-card: #1c1033;

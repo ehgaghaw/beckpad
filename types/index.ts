@@ -8,7 +8,7 @@ export type Range = "24h" | "7d" | "all";
 export interface Source {
   id: string;
   kind: SourceKind;
-  /** Display label, e.g. "ref:BECK-7F2A" */
+  /** Display label, e.g. "ref:ALEX-7F2A" */
   label: string;
   /** Owner wallet (short) for referral sources */
   handle?: string;

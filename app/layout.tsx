@@ -14,21 +14,21 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://beckpad-production
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: "BeckPad", template: "%s · BeckPad" },
-  applicationName: "BeckPad",
+  title: { default: "AlexPad", template: "%s · AlexPad" },
+  applicationName: "AlexPad",
   description: "Attribution-first Solana memecoin launchpad. Every buy is traced back to the link that drove it.",
   alternates: { canonical: "/" },
   manifest: "/manifest.webmanifest",
   icons: { icon: "/icon.png", apple: "/apple-icon.png", shortcut: "/icon.png" },
   openGraph: {
     type: "website",
-    siteName: "BeckPad",
+    siteName: "AlexPad",
     url: SITE_URL,
-    title: "BeckPad",
+    title: "AlexPad",
     description: "Attribution-first Solana memecoin launchpad",
-    images: [{ url: "/logo.png", width: 400, height: 400, alt: "BeckPad" }],
+    images: [{ url: "/logo.png", width: 400, height: 400, alt: "AlexPad" }],
   },
-  twitter: { card: "summary", site: "@ZssBecker", title: "BeckPad", description: "Attribution-first Solana memecoin launchpad", images: ["/logo.png"] },
+  twitter: { card: "summary", site: "@ZssBecker", title: "AlexPad", description: "Attribution-first Solana memecoin launchpad", images: ["/logo.png"] },
 };
 
 export const viewport: Viewport = {

@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 
 export const REF_COOKIE = "beckpad_ref";
 const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
-const EVT = "beckpad:ref";
+const EVT = "alexpad:ref";
 
 export function setRefCookie(code: string) {
   if (typeof document === "undefined") return;

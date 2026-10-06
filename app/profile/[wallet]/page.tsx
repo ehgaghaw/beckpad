@@ -60,7 +60,7 @@ export default function ProfilePage(props: PageProps<"/profile/[wallet]">) {
           <EmptyState
             icon="🧪"
             title="NO LAUNCHES YET"
-            body={isSelf ? "Your coins will show up here with their curve progress and Rug Check." : "This wallet hasn't launched anything on BeckPad."}
+            body={isSelf ? "Your coins will show up here with their curve progress and Rug Check." : "This wallet hasn't launched anything on AlexPad."}
             action={isSelf ? { href: "/launch", label: "LAUNCH A COIN" } : undefined}
           />
         ) : (

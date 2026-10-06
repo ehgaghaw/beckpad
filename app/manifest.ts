@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "BeckPad",
-    short_name: "BeckPad",
+    name: "AlexPad",
+    short_name: "AlexPad",
     description: "Attribution-first Solana memecoin launchpad",
     start_url: "/",
     display: "standalone",

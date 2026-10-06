@@ -1,4 +1,4 @@
-# `beckpad_curve` — Anchor program (Phase 2 plan)
+# `alexpad_curve` — Anchor program (Phase 2 plan)
 
 Status: **stub / design only**. Nothing here is deployed. `lib/curve.ts` in the web app is the reference
 implementation of the maths and must stay in sync with this program.
@@ -9,7 +9,7 @@ implementation of the maths and must stay in sync with this program.
 programs/bonding-curve/
   Anchor.toml
   Cargo.toml
-  programs/beckpad_curve/src/
+  programs/alexpad_curve/src/
     lib.rs            entrypoint + instructions
     state.rs          Global, BondingCurve, DevLock accounts
     curve.rs          constant-product maths (ported from lib/curve.ts)

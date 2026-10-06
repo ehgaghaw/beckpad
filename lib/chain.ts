@@ -6,13 +6,13 @@
 import { Connection, PublicKey, type ParsedTransactionWithMeta } from "@solana/web3.js";
 import type { CurveSnapshot, PumpTxRequest } from "@/types";
 
-export const RPC_URL = process.env.SOLANA_RPC ?? process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.mainnet-beta.solana.com";
+export const RPC_URL = process.env.SOLANA_RPC ?? process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://solana-rpc.publicnode.com";
 export const PUMP_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const PUMPPORTAL = "https://pumpportal.fun/api/trade-local";
 const DECIMALS = 6;
 
-const g = globalThis as unknown as { __beckpadConn?: Connection };
-export const connection: Connection = g.__beckpadConn ?? (g.__beckpadConn = new Connection(RPC_URL, "confirmed"));
+const g = globalThis as unknown as { __alexpadConn?: Connection };
+export const connection: Connection = g.__alexpadConn ?? (g.__alexpadConn = new Connection(RPC_URL, "confirmed"));
 
 export function curvePda(mint: string) {
   return PublicKey.findProgramAddressSync([Buffer.from("bonding-curve"), new PublicKey(mint).toBuffer()], PUMP_PROGRAM)[0];

@@ -32,7 +32,7 @@ export function RugCheckPanel({ rug }: { rug: RugCheck }) {
           </li>
         ))}
       </ul>
-      <p className="text-[10px] text-muted mt-3">Holder data is read live from Solana. Bundle and dev-sell checks cover trades routed through BeckPad.</p>
+      <p className="text-[10px] text-muted mt-3">Holder data is read live from Solana. Bundle and dev-sell checks cover trades routed through AlexPad.</p>
     </div>
   );
 }

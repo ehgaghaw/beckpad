@@ -30,8 +30,8 @@ export function Header() {
       <div className="on-yellow bg-gold text-bg">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center gap-2 sm:gap-5">
           <Link href="/" className="flex items-center gap-2.5 group">
-            <img src="/logo.png" alt="BeckPad" width={44} height={44} className="w-11 h-11 rounded-md pixelated border-2 border-bg shadow-[3px_3px_0_0_#651a81] group-hover:-translate-y-0.5 transition" />
-            <span className="hidden sm:inline font-display font-bold text-3xl tracking-wide leading-none">BECKPAD</span>
+            <img src="/logo.png" alt="AlexPad" width={44} height={44} className="w-11 h-11 rounded-md pixelated border-2 border-bg shadow-[3px_3px_0_0_#651a81] group-hover:-translate-y-0.5 transition" />
+            <span className="hidden sm:inline font-display font-bold text-3xl tracking-wide leading-none">ALEXPAD</span>
           </Link>
           <nav className="hidden md:flex items-center gap-1 ml-2">
             {NAV.map((n) => (
@@ -59,7 +59,7 @@ export function Header() {
             href={X_URL}
             target="_blank"
             rel="noreferrer"
-            aria-label="BeckPad on X"
+            aria-label="AlexPad on X"
             title="@ZssBecker on X"
             className="w-10 h-10 rounded-md bg-bg text-gold flex items-center justify-center shadow-[3px_3px_0_0_#651a81] hover:bg-plum hover:text-white active:translate-y-0.5 transition shrink-0"
           >

@@ -1,13 +1,13 @@
-# BeckPad
+# AlexPad
 
 Attribution-first Solana memecoin launchpad with a money / gaming aesthetic. Coins are **real SPL tokens on
-Solana mainnet**: BeckPad creates them on the pump.fun bonding curve and routes buys/sells through it, with the
-connected wallet signing every transaction. BeckPad adds the attribution layer on top.
+Solana mainnet**: AlexPad creates them on the pump.fun bonding curve and routes buys/sells through it, with the
+connected wallet signing every transaction. AlexPad adds the attribution layer on top.
 Every buy on a coin is traced back to the referral link, X post or caller that drove it, so you can see who
 actually brings volume and who is just shilling. Callers rank up through gaming tiers on **tracked volume**,
 not follower count. A Rug Check grade (A–F) and a visible dev-lock badge sit on every coin.
 
-> BeckPad is a parody/fan concept and is not affiliated with or endorsed by Alex Becker.
+> AlexPad is a parody/fan concept and is not affiliated with or endorsed by Alex Becker.
 > No real person's photo, likeness or quotes are used.
 
 ## Run it
@@ -42,8 +42,8 @@ token balance changes on-chain and attributes it to the referral cookie). Nothin
 
 ### Data
 
-There is no seeded data. The bonding curve, price and holders are read live from Solana (`lib/chain.ts`). BeckPad's
-own store (`lib/store.ts`) keeps coin metadata, trades routed through BeckPad, referral links, comments and derived
+There is no seeded data. The bonding curve, price and holders are read live from Solana (`lib/chain.ts`). AlexPad's
+own store (`lib/store.ts`) keeps coin metadata, trades routed through AlexPad, referral links, comments and derived
 stats, persisted to `DATA_DIR/beckpad.json`. On Railway the service has a volume at `/data` with `DATA_DIR=/data`.
 The browser polls `/api/rpc` (`sync`) every 3s for live updates.
 
