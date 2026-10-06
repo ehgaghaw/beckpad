@@ -2,10 +2,10 @@
  * Server-side registry + attribution index for coins launched through AlexPad.
  * The bonding curve itself lives on-chain (pump.fun program); this store keeps
  * metadata, trades that went through AlexPad (verified on-chain), referral
- * links, comments and derived stats. Persisted to DATA_DIR/beckpad.json.
+ * links, comments and derived stats. Persisted through lib/db.ts (Postgres when
+ * DATABASE_URL is set, otherwise a JSON file in DATA_DIR).
  */
-import fs from "fs";
-import path from "path";
+import * as db from "./db";
 import { createRng, fakeId } from "./rng";
 import { INITIAL_REAL_TOKENS, marketCapOf, priceOf, progressOf, TOTAL_SUPPLY } from "./curve";
 import { SOL_USD } from "./format";
@@ -58,8 +58,6 @@ interface World {
 
 /* ----------------------------- persistence ----------------------------- */
 
-const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "beckpad.json");
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://beckpad-production.up.railway.app").replace(/\/$/, "");
 
 function emptyWorld(): World {
@@ -78,56 +76,47 @@ function emptyWorld(): World {
   };
 }
 
-function load(): World {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return emptyWorld();
-    const raw = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    const w = emptyWorld();
-    for (const c of raw.coins ?? []) if (c.curve && c.signature) w.coins.set(c.mint, c);
-    for (const [k, v] of raw.images ?? []) w.images.set(k, v);
-    for (const [k, v] of raw.pending ?? []) w.pending.set(k, v);
-    for (const [k, v] of raw.trades ?? []) w.trades.set(k, v);
-    for (const s of raw.signatures ?? []) w.signatures.add(s);
-    for (const [k, v] of raw.comments ?? []) w.comments.set(k, v);
-    for (const [k, v] of raw.candles ?? []) w.candles.set(k, v);
-    for (const [k, v] of raw.referralLinks ?? []) w.referralLinks.set(k, v);
-    w.events = raw.events ?? [];
-    return w;
-  } catch (e) {
-    console.error("[store] failed to load data file, starting empty", e);
-    return emptyWorld();
-  }
+function hydrate(w: World, raw: db.RawWorld) {
+  for (const c of raw.coins ?? []) if (c.curve && c.signature) w.coins.set(c.mint, c);
+  for (const [k, v] of raw.images ?? []) w.images.set(k, v);
+  for (const [k, v] of raw.pending ?? []) w.pending.set(k, v as PendingLaunch);
+  for (const [k, v] of raw.trades ?? []) w.trades.set(k, v);
+  for (const s of raw.signatures ?? []) w.signatures.add(s);
+  for (const [k, v] of raw.comments ?? []) w.comments.set(k, v);
+  for (const [k, v] of raw.candles ?? []) w.candles.set(k, v);
+  for (const [k, v] of raw.referralLinks ?? []) w.referralLinks.set(k, v);
+  w.events = raw.events ?? [];
+  console.log(`[store] loaded ${w.coins.size} coin(s) via ${db.backendName}`);
+}
+
+function snapshot(): db.RawWorld {
+  return {
+    coins: Array.from(world.coins.values()),
+    images: Array.from(world.images.entries()),
+    pending: Array.from(world.pending.entries()),
+    trades: Array.from(world.trades.entries()),
+    signatures: Array.from(world.signatures),
+    comments: Array.from(world.comments.entries()),
+    candles: Array.from(world.candles.entries()),
+    referralLinks: Array.from(world.referralLinks.entries()),
+    events: world.events.slice(0, 300),
+  };
 }
 
 let saveTimer: NodeJS.Timeout | null = null;
+/** Debounced write-through to the database. Never runs before the registry has loaded. */
 function save() {
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    try {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-      const raw = {
-        coins: Array.from(world.coins.values()),
-        images: Array.from(world.images.entries()),
-        pending: Array.from(world.pending.entries()),
-        trades: Array.from(world.trades.entries()),
-        signatures: Array.from(world.signatures),
-        comments: Array.from(world.comments.entries()),
-        candles: Array.from(world.candles.entries()),
-        referralLinks: Array.from(world.referralLinks.entries()),
-        events: world.events.slice(0, 300),
-      };
-      const tmp = DATA_FILE + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(raw));
-      fs.renameSync(tmp, DATA_FILE);
-    } catch (e) {
-      console.error("[store] save failed", e);
-    }
+    void ready.then(() => db.save(snapshot()));
   }, 400);
 }
 
-const g = globalThis as unknown as { __alexpadStore?: World };
-const world: World = g.__alexpadStore ?? (g.__alexpadStore = load());
+const g = globalThis as unknown as { __alexpadStore?: World; __alexpadReady?: Promise<void> };
+const world: World = g.__alexpadStore ?? (g.__alexpadStore = emptyWorld());
+/** Resolves once the registry has been loaded from the database. Every public function awaits it. */
+const ready: Promise<void> = g.__alexpadReady ?? (g.__alexpadReady = db.load().then((raw) => hydrate(world, raw)));
 const rng = createRng((Date.now() ^ 0xbec4) >>> 0);
 
 let solUsd = SOL_USD;
@@ -333,6 +322,7 @@ function pub(c: Coin): Coin {
 /* ----------------------------- reads ----------------------------- */
 
 export async function listCoins(tab: CoinTab, limit = 60): Promise<Coin[]> {
+  await ready;
   sweep();
   const all = Array.from(world.coins.values()).map(pub);
   let out: Coin[];
@@ -353,6 +343,7 @@ export async function listCoins(tab: CoinTab, limit = 60): Promise<Coin[]> {
 }
 
 export async function getCoin(mint: string): Promise<Coin | null> {
+  await ready;
   const c = world.coins.get(mint);
   if (!c) return null;
   await refreshCurve(c);
@@ -361,6 +352,7 @@ export async function getCoin(mint: string): Promise<Coin | null> {
 }
 
 export async function coinOfTheHour(): Promise<Coin | null> {
+  await ready;
   sweep();
   const live = Array.from(world.coins.values())
     .map(pub)
@@ -371,41 +363,49 @@ export async function coinOfTheHour(): Promise<Coin | null> {
   return live[0];
 }
 
-export function biggestBuys(limit = 10): Trade[] {
+export async function biggestBuys(limit = 10): Promise<Trade[]> {
+  await ready;
   const now = Date.now();
   const all: Trade[] = [];
   for (const list of world.trades.values()) for (const t of list) if (t.side === "buy" && now - t.ts < DAY) all.push(t);
   return all.sort((a, b) => b.sol - a.sol).slice(0, limit);
 }
 
-export function recentEvents(limit = 30): LiveEvent[] {
+export async function recentEvents(limit = 30): Promise<LiveEvent[]> {
+  await ready;
   return world.events.slice(0, limit);
 }
 
-export function getTrades(mint: string, limit = 50): Trade[] {
+export async function getTrades(mint: string, limit = 50): Promise<Trade[]> {
+  await ready;
   return (world.trades.get(mint) ?? []).slice(0, limit);
 }
 
 export async function getHolders(mint: string): Promise<Holder[]> {
+  await ready;
   const c = world.coins.get(mint);
   if (!c) return [];
   return refreshHolders(c);
 }
 
-export function getComments(mint: string): Comment[] {
+export async function getComments(mint: string): Promise<Comment[]> {
+  await ready;
   return world.comments.get(mint) ?? [];
 }
 
-export function getCandles(mint: string): Candle[] {
+export async function getCandles(mint: string): Promise<Candle[]> {
+  await ready;
   return world.candles.get(mint) ?? [];
 }
 
 export async function getPosition(wallet: string, mint: string): Promise<number> {
+  await ready;
   if (!isPubkey(wallet) || !isPubkey(mint)) return 0;
   return chain.tokenBalance(wallet, mint);
 }
 
-export function sync(since: number): SyncResult {
+export async function sync(since: number): Promise<SyncResult> {
+  await ready;
   sweep();
   const now = Date.now();
   const events = world.events.filter((e) => e.ts > since);
@@ -423,7 +423,8 @@ export function sync(since: number): SyncResult {
   return { now, events, trades, coins };
 }
 
-export function leaderboard(range: Range): Caller[] {
+export async function leaderboard(range: Range): Promise<Caller[]> {
+  await ready;
   const now = Date.now();
   const byOwner = new Map<string, { vol: Record<Range, number>; buyers: Record<Range, Set<string>>; mints: Set<string>; label: string }>();
   for (const link of world.referralLinks.values()) {
@@ -474,7 +475,8 @@ export function leaderboard(range: Range): Caller[] {
   return out.sort((a, b) => b.volumeSol[range] - a.volumeSol[range]);
 }
 
-export function profileFor(wallet: string): Profile {
+export async function profileFor(wallet: string): Promise<Profile> {
+  await ready;
   const launches = Array.from(world.coins.values())
     .filter((c) => c.creator === wallet)
     .sort((a, b) => b.createdAt - a.createdAt)
@@ -516,7 +518,8 @@ export function profileFor(wallet: string): Profile {
 
 /* ----------------------------- metadata hosting ----------------------------- */
 
-export function metadataFor(mint: string) {
+export async function metadataFor(mint: string) {
+  await ready;
   const c = world.coins.get(mint);
   const p = world.pending.get(mint);
   const src = c ?? p;
@@ -535,7 +538,8 @@ export function metadataFor(mint: string) {
   };
 }
 
-export function imageFor(mint: string): { bytes: Buffer; type: string } | null {
+export async function imageFor(mint: string): Promise<{ bytes: Buffer; type: string } | null> {
+  await ready;
   const data = world.images.get(mint);
   if (!data) return null;
   const m = data.match(/^data:(image\/[a-z+.-]+);base64,(.+)$/);
@@ -570,6 +574,7 @@ function updateCandle(mint: string, price: number) {
 
 /** Step 1 of a launch: validate + park metadata so the token URI resolves immediately. */
 export async function prepareLaunch(input: PrepareLaunchInput): Promise<{ uri: string; name: string; symbol: string }> {
+  await ready;
   if (!isPubkey(input.creator)) throw new Error("Connect a wallet first");
   if (!isPubkey(input.mint)) throw new Error("Invalid mint");
   const ticker = String(input.ticker ?? "")
@@ -616,6 +621,7 @@ export async function prepareLaunch(input: PrepareLaunchInput): Promise<{ uri: s
 
 /** Step 3 of a launch: the create transaction confirmed; verify it and list the coin. */
 export async function registerCoin(input: RegisterCoinInput): Promise<Coin> {
+  await ready;
   if (!isPubkey(input.mint) || !isPubkey(input.creator)) throw new Error("Invalid request");
   if (world.coins.has(input.mint)) return pub(world.coins.get(input.mint)!);
   const p = world.pending.get(input.mint);
@@ -684,6 +690,7 @@ export async function registerCoin(input: RegisterCoinInput): Promise<Coin> {
 
 /** A buy/sell signed in the browser confirmed on-chain; verify and attribute it. */
 export async function recordTrade(input: RecordTradeInput): Promise<{ trade: Trade; coin: Coin; graduated: boolean }> {
+  await ready;
   const c = world.coins.get(input.mint);
   if (!c) throw new Error("Coin not found");
   if (!isPubkey(input.wallet)) throw new Error("Connect a wallet first");
@@ -719,7 +726,8 @@ export async function recordTrade(input: RecordTradeInput): Promise<{ trade: Tra
   return { trade, coin: pub(c), graduated: c.graduated && !wasGraduated };
 }
 
-export function createReferralLink(wallet: string, label: string, mint?: string): ReferralLink {
+export async function createReferralLink(wallet: string, label: string, mint?: string): Promise<ReferralLink> {
+  await ready;
   if (!isPubkey(wallet)) throw new Error("Connect a wallet first");
   const code = refCode();
   const coin = mint ? world.coins.get(mint) : undefined;
@@ -741,7 +749,8 @@ export function createReferralLink(wallet: string, label: string, mint?: string)
   return link;
 }
 
-export function recordClick(code: string) {
+export async function recordClick(code: string) {
+  await ready;
   const link = world.referralLinks.get(String(code ?? "").toUpperCase());
   if (link) {
     link.clicks += 1;
@@ -750,7 +759,8 @@ export function recordClick(code: string) {
   return !!link;
 }
 
-export function postComment(mint: string, wallet: string, text: string): Comment {
+export async function postComment(mint: string, wallet: string, text: string): Promise<Comment> {
+  await ready;
   if (!world.coins.has(mint)) throw new Error("Coin not found");
   if (!isPubkey(wallet)) throw new Error("Connect a wallet first");
   const body = String(text ?? "").trim().slice(0, 280);

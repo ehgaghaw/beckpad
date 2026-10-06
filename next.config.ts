@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // pg is a native Node client; keep it out of the bundler.
+  serverExternalPackages: ["pg"],
 };
 
 export default nextConfig;

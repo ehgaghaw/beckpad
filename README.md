@@ -44,7 +44,9 @@ token balance changes on-chain and attributes it to the referral cookie). Nothin
 
 There is no seeded data. The bonding curve, price and holders are read live from Solana (`lib/chain.ts`). AlexPad's
 own store (`lib/store.ts`) keeps coin metadata, trades routed through AlexPad, referral links, comments and derived
-stats, persisted to `DATA_DIR/beckpad.json`. On Railway the service has a volume at `/data` with `DATA_DIR=/data`.
+stats. With `DATABASE_URL` set (Railway Postgres) every coin, trade, comment, candle, referral link, pending launch and
+image is a row in Postgres (`lib/db.ts`, tables created on boot), so launches survive redeploys. Without it the store
+falls back to `DATA_DIR/beckpad.json`; on its first boot against an empty database it imports that file.
 The browser polls `/api/rpc` (`sync`) every 3s for live updates.
 
 Env: `SOLANA_RPC` (server reads/verification), `NEXT_PUBLIC_SOLANA_RPC` (browser sends transactions), both default to
