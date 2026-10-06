@@ -1,26 +1,221 @@
+@import "@solana/wallet-adapter-react-ui/styles.css";
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Palette pulled from the BeckPad pixel-art logo */
+@theme {
+  --color-bg: #12071f;
+  --color-card: #1c1033;
+  --color-card2: #261745;
+  --color-line: #3d2766;
+  --color-gold: #f4ff58; /* logo yellow: primary accent */
+  --color-green: #70beff; /* logo sky blue: buys / positive */
+  --color-red: #ff729d; /* logo pink: sells / risk */
+  --color-ice: #6958ff; /* logo indigo */
+  --color-peach: #ffb18d;
+  --color-plum: #651a81;
+  --color-muted: #a896c8;
+  --font-display: var(--font-pixel), "Pixelify Sans", "Impact", sans-serif;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* blockier corners for the pixel look */
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 5px;
+  --radius-2xl: 6px;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --animate-ticker: ticker 60s linear infinite;
+  --animate-pulse-glow: pulseGlow 2.2s ease-in-out infinite;
+  --animate-flash-green: flashGreen 0.9s ease-out;
+  --animate-flash-red: flashRed 0.9s ease-out;
+  --animate-slide-in: slideIn 0.35s ease-out;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+
+  @keyframes ticker {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes pulseGlow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(112, 190, 255, 0);
+    }
+    50% {
+      box-shadow: 0 0 24px 2px rgba(112, 190, 255, 0.4);
+    }
+  }
+  @keyframes flashGreen {
+    0% {
+      background-color: rgba(112, 190, 255, 0.4);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+  @keyframes flashRed {
+    0% {
+      background-color: rgba(255, 114, 157, 0.4);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
   }
 }
 
+:root {
+  color-scheme: dark;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: #f6f1ff;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(ellipse 60% 40% at 50% -10%, rgba(244, 255, 88, 0.1), transparent 60%),
+    radial-gradient(ellipse 40% 30% at 100% 10%, rgba(105, 88, 255, 0.18), transparent 60%);
+  background-size:
+    24px 24px,
+    24px 24px,
+    auto,
+    auto;
+}
+
+@utility font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+@utility pixelated {
+  image-rendering: pixelated;
+}
+@utility glow-gold {
+  text-shadow: 0 0 18px rgba(244, 255, 88, 0.55);
+}
+@utility glow-green {
+  text-shadow: 0 0 18px rgba(112, 190, 255, 0.6);
+}
+@utility glow-red {
+  text-shadow: 0 0 18px rgba(255, 114, 157, 0.6);
+}
+@utility box-glow-gold {
+  box-shadow:
+    0 0 0 1px rgba(244, 255, 88, 0.45),
+    4px 4px 0 0 #000,
+    0 0 28px rgba(244, 255, 88, 0.15);
+}
+@utility box-glow-green {
+  box-shadow:
+    0 0 0 1px rgba(112, 190, 255, 0.45),
+    4px 4px 0 0 #000,
+    0 0 28px rgba(112, 190, 255, 0.18);
+}
+@utility card {
+  background: var(--color-card);
+  border: 2px solid var(--color-line);
+  border-radius: 6px;
+  box-shadow: 4px 4px 0 0 #000;
+}
+@utility stat-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+@utility skeleton {
+  background: linear-gradient(90deg, #1c1033 25%, #2a1a4c 50%, #1c1033 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 4px;
+}
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #3d2766 transparent;
+}
+
+/* Wallet adapter button restyle */
+.wallet-adapter-button-trigger {
+  background: transparent !important;
+  border: 2px solid var(--color-gold) !important;
+  color: var(--color-gold) !important;
+  font-family: var(--font-display) !important;
+  font-size: 1rem !important;
+  letter-spacing: 0.08em !important;
+  height: 40px !important;
+  padding: 0 14px !important;
+  border-radius: 4px !important;
+  line-height: 36px !important;
+  box-shadow: 3px 3px 0 0 #000;
+}
+.wallet-adapter-button-trigger:hover {
+  background: rgba(244, 255, 88, 0.12) !important;
+}
+.on-yellow .wallet-adapter-button-trigger {
+  border-color: var(--color-bg) !important;
+  color: var(--color-bg) !important;
+  box-shadow: 3px 3px 0 0 var(--color-plum);
+}
+.on-yellow .wallet-adapter-button-trigger:hover {
+  background: rgba(18, 7, 31, 0.1) !important;
+}
+.wallet-adapter-modal-wrapper {
+  background: var(--color-card) !important;
+  border: 2px solid var(--color-line);
+}
+.wallet-adapter-modal-button-close {
+  background: var(--color-card2) !important;
+}
+.wallet-adapter-modal-title {
+  font-family: var(--font-display) !important;
+  letter-spacing: 0.05em;
+}
+.wallet-adapter-modal-list .wallet-adapter-button {
+  font-family: var(--font-sans) !important;
+}
+.wallet-adapter-dropdown-list {
+  background: var(--color-card2) !important;
+  border: 2px solid var(--color-line);
+}
+.wallet-adapter-dropdown-list-item {
+  font-family: var(--font-sans) !important;
+}
+
+input[type="range"] {
+  accent-color: var(--color-gold);
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
 }
