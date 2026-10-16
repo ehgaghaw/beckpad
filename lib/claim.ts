@@ -98,7 +98,9 @@ export async function buildClaimTx(ownerStr: string, toStr: string, sweepAll = f
   const claimed = Math.max(0, end - before + NETWORK_FEE);
   // `end` already has the network fee taken off, so sending all of it leaves exactly 0
   // (a system account may not keep a balance between 0 and the rent minimum).
-  const send = sweepAll ? end : claimed - NETWORK_FEE;
+  // with claim instructions, `end` is a simulated balance that already paid the network fee; without any, it is
+  // the current balance, so the fee still has to come out of it
+  const send = sweepAll ? (ixs.length ? end : end - NETWORK_FEE) : claimed - NETWORK_FEE;
   if (send <= 0) return { tx: null, claimableSol: claimed / 1e9, sendSol: 0, sources, note: "The claimable amount does not cover the network fee yet." };
   const tx = await compile(owner, [...ixs, SystemProgram.transfer({ fromPubkey: owner, toPubkey: to, lamports: send })]);
   if ((tx.serialize().length ?? 0) > 1232) throw new Error("Too many coins to claim in one transaction");
