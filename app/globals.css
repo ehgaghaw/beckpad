@@ -284,3 +284,23 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
 @media (max-width: 480px) {
   .wallet-adapter-button-trigger { font-size: 0.66rem !important; padding: 0 10px !important; letter-spacing: 0.1em !important; }
 }
+
+/* ---------- archive pieces ---------- */
+.scanline { position: absolute; left: 0; right: 0; top: 0; height: 2px; pointer-events: none; background: linear-gradient(90deg, transparent, rgba(183, 95, 224, 0.9), transparent); box-shadow: 0 0 12px rgba(183, 95, 224, 0.8); animation: scan 4.5s cubic-bezier(.6, 0, .4, 1) infinite; opacity: 0.6; }
+.ledger-row { position: relative; transition: background .2s, padding-left .25s cubic-bezier(.2, .8, .2, 1); }
+.ledger-row::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--color-gold); transform: scaleY(0); transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+.ledger-row:hover { background: rgba(183, 95, 224, 0.05); padding-left: 1.1rem; }
+.ledger-row:hover::before { transform: scaleY(1); }
+.dropzone { background: #000; border: 1px dashed #3a3046; transition: border-color .2s, box-shadow .2s; }
+.dropzone:hover, .dropzone.is-drag { border-color: var(--color-gold); box-shadow: 0 0 0 1px rgba(183, 95, 224, .3), 0 0 40px rgba(183, 95, 224, .12); }
+.dropzone.has-img { border-style: solid; border-color: var(--color-line); }
+.receipt { font-family: var(--font-mono); font-size: 11px; border-top: 1px solid var(--color-line); }
+.receipt > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(38, 33, 48, .7); }
+.receipt dt { color: var(--color-muted); text-transform: uppercase; letter-spacing: .14em; font-size: 9px; align-self: center; }
+.receipt dd { color: #fff; font-variant-numeric: tabular-nums; }
+.receipt .total { border-bottom: 1px solid var(--color-gold); }
+.receipt .total dt { color: #fff; }
+.receipt .total dd { color: var(--color-gold); font-weight: 700; }
+input[type="range"] { -webkit-appearance: none; appearance: none; height: 2px; background: #3a3046; outline: none; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: var(--color-gold); border: 0; cursor: pointer; box-shadow: 0 0 12px rgba(183, 95, 224, .7); }
+input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; background: var(--color-gold); border: 0; cursor: pointer; border-radius: 0; }

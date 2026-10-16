@@ -1,47 +1,31 @@
 "use client";
 import { clamp } from "@/lib/format";
 
-export function CurveBar({
-  pct,
-  graduated = false,
-  size = "md",
-  showLabel = true,
-}: {
-  pct: number;
-  graduated?: boolean;
-  size?: "sm" | "md" | "lg";
-  showLabel?: boolean;
-}) {
+/** Bonding-curve progress as a row of blocks, like a loading bar on an old terminal. */
+export function SegBar({ pct, graduated = false, blocks = 24, compact = false }: { pct: number; graduated?: boolean; blocks?: number; compact?: boolean }) {
   const p = graduated ? 100 : clamp(pct, 0, 100);
-  const h = size === "sm" ? "h-1.5" : size === "lg" ? "h-4" : "h-2.5";
+  const lit = Math.round((p / 100) * blocks);
   const hot = p >= 85;
+  const color = graduated ? "bg-ice" : hot ? "bg-green" : "bg-gold";
   return (
     <div className="w-full">
-      {showLabel && (
-        <div className="flex items-center justify-between mb-1">
-          <span className="stat-label">Bonding curve</span>
-          <span className={`text-xs font-bold tabular ${graduated ? "text-ice" : hot ? "text-green glow-green" : "text-gold"}`}>
-            {graduated ? "GRADUATED" : `${p.toFixed(1)}%`}
-          </span>
+      {!compact && (
+        <div className="flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.24em] mb-1.5">
+          <span className="text-muted">bonding curve</span>
+          <span className={graduated ? "text-ice" : hot ? "text-green" : "text-gold"}>{graduated ? "graduated" : `${p.toFixed(1)}%`}</span>
         </div>
       )}
-      <div className={`${h} w-full rounded-full bg-black/60 border border-line overflow-hidden relative`}>
-        <div
-          className={`${h} rounded-full transition-[width] duration-700 ease-out ${
-            graduated
-              ? "bg-ice"
-              : hot
-                ? "bg-gradient-to-r from-gold via-green to-green animate-pulse-glow"
-                : "bg-gradient-to-r from-gold/70 to-gold"
-          }`}
-          style={{ width: `${p}%` }}
-        />
-        {!graduated && size === "lg" && (
-          <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tracking-widest text-black mix-blend-screen">
-            {p.toFixed(1)}% TO GRADUATION
-          </div>
-        )}
+      <div className="flex gap-[2px]" title={`${p.toFixed(1)}%`}>
+        {Array.from({ length: blocks }).map((_, i) => (
+          <span key={i} className={`flex-1 ${compact ? "h-2" : "h-3"} ${i < lit ? color : "bg-white/10"} ${i === lit - 1 && !graduated ? "animate-pulse" : ""}`} />
+        ))}
       </div>
+      {compact && <div className={`font-mono text-[9px] mt-1 ${graduated ? "text-ice" : "text-muted"}`}>{graduated ? "graduated" : `${p.toFixed(1)}%`}</div>}
     </div>
   );
+}
+
+/** Kept for older pages that still import it. */
+export function CurveBar({ pct, graduated = false, size = "md", showLabel = true }: { pct: number; graduated?: boolean; size?: "sm" | "md" | "lg"; showLabel?: boolean }) {
+  return <SegBar pct={pct} graduated={graduated} blocks={size === "lg" ? 32 : size === "sm" ? 16 : 24} compact={!showLabel} />;
 }

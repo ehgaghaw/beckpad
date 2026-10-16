@@ -1,71 +1,37 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
-import { CoinAvatar } from "@/components/ui/CoinAvatar";
-import { CurveBar } from "@/components/ui/CurveBar";
-import { RugBadge } from "@/components/ui/RugBadge";
-import { SourceChip } from "@/components/ui/SourceChip";
-import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { SegBar } from "@/components/ui/CurveBar";
 import { compact, fmtPct, fmtUsd, timeAgo } from "@/lib/format";
 import { useTick } from "@/lib/hooks";
 import type { Coin } from "@/types";
 
+/** A coin as a file strip: square image, condensed name, one mono line of numbers, the curve. Used on profiles and the launch preview. */
 export function CoinCard({ coin }: { coin: Coin }) {
   useTick(15_000);
-  return (
-    <Link
-      href={`/coin/${coin.mint}`}
-      className="card p-4 flex flex-col gap-3 hover:border-gold/50 hover:-translate-y-0.5 transition group relative overflow-hidden"
-    >
-      {coin.graduated && (
-        <span className="absolute top-3 right-3 text-[10px] font-bold tracking-widest text-ice border border-ice/40 bg-ice/10 px-1.5 py-0.5 rounded">
-          GRADUATED
+  const body = (
+    <>
+      <span className="w-16 h-16 shrink-0 bg-black border border-line overflow-hidden flex items-center justify-center text-3xl relative">
+        {coin.imageUrl ? <img src={coin.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : coin.emoji}
+        <span className="scanline" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1 grid gap-1.5">
+        <span className="flex items-baseline gap-2 min-w-0">
+          <span className="font-display text-2xl leading-none truncate">{coin.name}</span>
+          <span className="font-mono text-[11px] text-gold tracking-[0.14em] shrink-0">${coin.ticker}</span>
+          {coin.graduated && <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-ice shrink-0">graduated</span>}
         </span>
-      )}
-      <div className="flex items-start gap-3">
-        <CoinAvatar emoji={coin.emoji} hue={coin.hue} imageUrl={coin.imageUrl} size={52} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="font-display text-xl tracking-wide truncate">{coin.name}</span>
-            <span className="text-xs text-muted font-semibold">${coin.ticker}</span>
-          </div>
-          <div className="text-[11px] text-muted flex items-center gap-2">
-            <span>{coin.createdAt ? timeAgo(coin.createdAt) : "just now"}</span>
-            {coin.devLock && <span className="text-green">🔒 dev locked</span>}
-          </div>
-          <div className="mt-1 flex items-center gap-2">
-            <RugBadge grade={coin.rug.grade} score={coin.rug.score} />
-            <span className={`text-xs font-bold tabular ${coin.change24h >= 0 ? "text-green" : "text-red"}`}>{fmtPct(coin.change24h, 0)}</span>
-          </div>
-        </div>
-      </div>
-
-      <CurveBar pct={coin.curvePct} graduated={coin.graduated} size="sm" />
-
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <div className="stat-label">Mkt cap</div>
-          <div className="font-display text-xl text-gold leading-none">
-            <AnimatedNumber value={coin.marketCapUsd} format={fmtUsd} />
-          </div>
-        </div>
-        <div>
-          <div className="stat-label">Holders</div>
-          <div className="font-display text-xl leading-none">
-            <AnimatedNumber value={coin.holders} format={(n) => compact(n, 0)} />
-          </div>
-        </div>
-        <div>
-          <div className="stat-label">Vol 24h</div>
-          <div className="font-display text-xl leading-none">
-            <AnimatedNumber value={coin.volume24hSol} format={(n) => compact(n, 1)} /> <span className="text-xs text-muted font-sans">SOL</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-2 pt-1 border-t border-line/70">
-        <SourceChip source={coin.topSource} prefix="top source" className="min-w-0" link={false} />
-        <span className="text-[11px] text-muted shrink-0">💬 {coin.replies}</span>
-      </div>
-    </Link>
+        <span className="font-mono text-[11px] text-muted flex flex-wrap gap-x-3">
+          <span className="text-white">{fmtUsd(coin.marketCapUsd)}</span>
+          <span>{compact(coin.holders, 0)} holders</span>
+          <span>{compact(coin.volume24hSol, 1)} SOL vol</span>
+          <span className={coin.change24h >= 0 ? "text-green" : "text-red"}>{fmtPct(coin.change24h, 0)}</span>
+          <span>{coin.createdAt ? timeAgo(coin.createdAt) : "just now"}</span>
+        </span>
+        <SegBar pct={coin.curvePct} graduated={coin.graduated} blocks={20} compact />
+      </span>
+    </>
   );
+  const cls = "card ledger-row flex items-center gap-4 p-3";
+  return coin.mint === "preview" ? <div className={cls}>{body}</div> : <Link href={`/coin/${coin.mint}`} className={cls}>{body}</Link>;
 }

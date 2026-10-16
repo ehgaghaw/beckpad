@@ -1,23 +1,23 @@
-import { CoinOfTheHour } from "@/components/coin/CoinOfTheHour";
-import { MoneyPrinter } from "@/components/coin/MoneyPrinter";
-import { CoinGrid } from "@/components/coin/CoinGrid";
+import { Dossier } from "@/components/coin/Dossier";
+import { Intercepts } from "@/components/coin/Intercepts";
+import { Ledger } from "@/components/coin/Ledger";
 import { Hero } from "@/components/layout/Hero";
 
 export default function HomePage() {
   return (
-    <div className="space-y-10 pt-2">
+    <div className="space-y-14 pt-2">
       <Hero />
-      <section className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-3">
-          <CoinOfTheHour />
+      <section id="coins" className="scroll-mt-24 space-y-4">
+        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-muted flex items-center gap-3">
+          <span className="w-8 h-px bg-line" />
+          files
         </div>
-        <div className="lg:col-span-2">
-          <MoneyPrinter />
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+          <Dossier />
+          <Intercepts />
         </div>
       </section>
-      <div id="coins" className="scroll-mt-28">
-        <CoinGrid />
-      </div>
+      <Ledger />
     </div>
   );
 }

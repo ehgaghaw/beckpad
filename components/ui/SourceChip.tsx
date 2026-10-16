@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Source } from "@/types";
 
 const ICON: Record<Source["kind"], string> = { caller: "📣", x_post: "𝕏", referral: "🔗", direct: "🌐" };
@@ -13,7 +12,6 @@ export function SourceChip({
   source,
   prefix,
   className = "",
-  link = true,
 }: {
   source: Source | null;
   prefix?: string;
@@ -31,6 +29,6 @@ export function SourceChip({
       <span className="truncate">{source.label}</span>
     </span>
   );
-  if (link && source.kind === "caller") return <Link href={`/leaderboard?caller=${source.handle}`}>{body}</Link>;
+
   return body;
 }
