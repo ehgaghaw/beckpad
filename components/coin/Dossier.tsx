@@ -59,7 +59,7 @@ export function Dossier() {
         {coin.imageUrl ? (
           <img src={coin.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover pixelated opacity-90 group-hover:opacity-100 group-hover:scale-[1.03] transition duration-700" />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-[120px]">{coin.emoji}</div>
+          <div className="absolute inset-0 flex items-center justify-center font-display text-8xl text-white/10">?</div>
         )}
         <div className="scanline" aria-hidden />
         <span className="absolute left-3 top-3 font-mono text-[9px] uppercase tracking-[0.24em] bg-black/70 px-2 py-1">file 01 · strongest signal</span>

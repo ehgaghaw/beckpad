@@ -70,7 +70,7 @@ export function LaunchPreview({ input, compact = false }: { input: LaunchInput; 
         <span className="text-gold">unfiled</span>
       </div>
       <div className="relative aspect-square bg-black border-b border-line flex items-center justify-center overflow-hidden">
-        {coin.imageUrl ? <img src={coin.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : <span className="text-[96px] opacity-40">{coin.emoji}</span>}
+        {coin.imageUrl ? <img src={coin.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : <span className="font-display text-6xl text-white/10">?</span>}
         <span className="scanline" aria-hidden />
         {!coin.imageUrl && <span className="absolute bottom-3 font-mono text-[9px] uppercase tracking-[0.24em] text-muted">awaiting image</span>}
       </div>

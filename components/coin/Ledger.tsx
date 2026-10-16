@@ -92,7 +92,7 @@ export function Ledger() {
                 <span className="font-mono text-[11px] text-muted tabular">{String(i + 1).padStart(3, "0")}</span>
                 <span className="flex items-center gap-3 min-w-0">
                   <span className="w-10 h-10 shrink-0 bg-black border border-line overflow-hidden flex items-center justify-center text-xl">
-                    {c.imageUrl ? <img src={c.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : c.emoji}
+                    {c.imageUrl ? <img src={c.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : <span className="font-display text-white/20">?</span>}
                   </span>
                   <span className="min-w-0">
                     <span className="flex items-baseline gap-2 min-w-0">

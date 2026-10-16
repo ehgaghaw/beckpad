@@ -12,7 +12,7 @@ export function CoinCard({ coin }: { coin: Coin }) {
   const body = (
     <>
       <span className="w-16 h-16 shrink-0 bg-black border border-line overflow-hidden flex items-center justify-center text-3xl relative">
-        {coin.imageUrl ? <img src={coin.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : coin.emoji}
+        {coin.imageUrl ? <img src={coin.imageUrl} alt="" className="w-full h-full object-cover pixelated" /> : <span className="font-display text-white/20">?</span>}
         <span className="scanline" aria-hidden />
       </span>
       <span className="min-w-0 flex-1 grid gap-1.5">

@@ -2,7 +2,6 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LiveTicker } from "./LiveTicker";
 import { WalletButton } from "./WalletButton";
 
 const NAV = [
@@ -25,7 +24,6 @@ export function Header() {
   const isActive = (href: string) => (href === "/" ? path === "/" || path.startsWith("/coin") : path.startsWith(href));
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/80 backdrop-blur-md">
-      <LiveTicker />
       <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center gap-3 sm:gap-6">
         <Link href="/" className="flex items-center gap-3 group shrink-0" aria-label="ZerePad home">
           <img src="/logo.png" alt="" width={36} height={36} className="w-9 h-9 pixelated border border-line group-hover:border-gold transition" />
