@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Keypair } from "@solana/web3.js";
 import { api } from "@/lib/api";
 import { useIdentity } from "@/lib/wallet";
-import { usePumpTx, EXPLORER, SentButUnconfirmed } from "@/lib/solana";
+import { usePumpLaunch, EXPLORER, SentButUnconfirmed } from "@/lib/solana";
 import { Modal } from "@/components/ui/Modal";
 import { LaunchPreview } from "./LaunchPreview";
 import type { LaunchInput } from "@/types";
@@ -61,7 +61,7 @@ function Step({ n, title, hint, children }: { n: string; title: string; hint: st
 export function LaunchForm() {
   const id = useIdentity();
   const router = useRouter();
-  const sendTx = usePumpTx();
+  const { launch: sendLaunch, sendFeeShare } = usePumpLaunch();
   const fileRef = useRef<HTMLInputElement>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -82,9 +82,9 @@ export function LaunchForm() {
   const set = <K extends keyof LaunchInput>(k: K, v: LaunchInput[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   /** Register a coin whose create transaction was sent; retries while the chain catches up. */
-  const register = async (mint: string, signature: string, creator: string) => {
+  const register = async (mint: string, signature: string, creator: string, tries = 8) => {
     let lastErr: unknown = null;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < tries; i++) {
       try {
         return await api.registerCoin({ mint, signature, creator });
       } catch (e) {
@@ -100,7 +100,13 @@ export function LaunchForm() {
     const p = readPending();
     if (!p || !id.address || p.creator !== id.address) return;
     const t = toast.loading(`Finishing your $${p.ticker} launch…`, { description: "Verifying the create transaction on Solana" });
-    register(p.mint, p.signature, p.creator)
+    register(p.mint, p.signature, p.creator, 2)
+      .catch(async (e: unknown) => {
+        // The coin exists but its fee-share step never landed: send just that step, then list it.
+        if (!(e instanceof Error) || !/fee sharing/i.test(e.message)) throw e;
+        await sendFeeShare(p.mint, (s) => toast.loading(`Finishing your $${p.ticker} launch…`, { id: t, description: s }));
+        return register(p.mint, p.signature, p.creator);
+      })
       .then((coin) => {
         writePending(null);
         toast.success(`$${coin.ticker} is filed`, { id: t });
@@ -151,8 +157,9 @@ export function LaunchForm() {
         creator: id.address,
       });
       let signature: string;
+      let feeSig: string | null = null;
       try {
-        signature = await sendTx(
+        const res = await sendLaunch(
           {
             action: "create",
             mint,
@@ -162,15 +169,18 @@ export function LaunchForm() {
             priorityFee: 0.0005,
             tokenMetadata: { name: meta.name, symbol: meta.symbol, uri: meta.uri },
           },
-          [mintKp],
+          mintKp,
           status,
         );
+        signature = res.createSig;
+        feeSig = res.feeSig;
       } catch (e) {
         // The wallet sent it but our RPC could not confirm: the server verifies on-chain anyway.
         if (e instanceof SentButUnconfirmed) signature = e.signature;
         else throw e;
       }
       writePending({ mint, signature, creator: id.address, ticker: meta.symbol });
+      if (!feeSig) feeSig = await sendFeeShare(mint, status).catch(() => null);
       status("Sent. Filing on ZerePad…");
       const coin = await register(mint, signature, id.address);
       writePending(null);
@@ -351,7 +361,7 @@ export function LaunchForm() {
           <ul className="font-mono text-[11px] text-muted space-y-1.5 leading-relaxed">
             <li>· mints a real token on Solana mainnet, 1B supply, on the pump.fun curve</li>
             <li>· your {form.devBuySol.toFixed(2)} SOL first buy runs in the same transaction</li>
-            <li>· your wallet asks for one approval, about {total} SOL in total</li>
+            <li>· your wallet asks for one approval covering two transactions, about {total} SOL in total</li>
             <li>· pump.fun creator fees from this coin go to the ZerePad wallet, not to you</li>
             <li>· this cannot be undone</li>
           </ul>

@@ -5,6 +5,7 @@
  * links, comments and derived stats. Persisted through lib/db.ts (Postgres when
  * DATABASE_URL is set, otherwise a JSON file in DATA_DIR).
  */
+import { isFeeShareLocked } from "./feeshare";
 import * as db from "./db";
 import { createRng, fakeId } from "./rng";
 import { INITIAL_REAL_TOKENS, marketCapOf, priceOf, progressOf, TOTAL_SUPPLY } from "./curve";
@@ -636,6 +637,7 @@ export async function registerCoin(input: RegisterCoinInput): Promise<Coin> {
     if (!curve) await new Promise((r) => setTimeout(r, 1500));
   }
   if (!curve) throw new Error("Bonding curve not found yet. Retry in a few seconds.");
+  if (!(await isFeeShareLocked(input.mint))) throw new Error("Creator fee sharing is not set up for this coin yet.");
   const coin: Coin = {
     mint: input.mint,
     name: p.name,

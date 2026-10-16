@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import * as store from "@/lib/store";
 import { buildPumpTx, creatorVaultBalance } from "@/lib/chain";
+import { buildFeeShareTx } from "@/lib/feeshare";
 import type { CoinTab, PrepareLaunchInput, PumpTxRequest, Range, RecordTradeInput, RegisterCoinInput } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ const methods: Record<string, (...args: any[]) => unknown> = {
   registerCoin: (input: RegisterCoinInput) => store.registerCoin(input),
   recordTrade: (input: RecordTradeInput) => store.recordTrade(input),
   buildTx: (req: PumpTxRequest) => buildPumpTx(req),
+  buildFeeShareTx: (mint: string, launcher: string) => buildFeeShareTx(mint, launcher),
   getCreatorFees: (wallet: string) => (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet) ? creatorVaultBalance(wallet) : { claimableSol: 0, vault: "" }),
   createReferralLink: (wallet: string, label: string, mint?: string) => store.createReferralLink(wallet, label, mint),
   recordRefClick: (code: string) => store.recordClick(code),
