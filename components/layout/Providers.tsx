@@ -8,8 +8,10 @@ import { Toaster } from "sonner";
 import { useLiveUpdates } from "@/lib/hooks";
 
 /** Mainnet: coins are created and traded on pump.fun's live bonding curve. */
-// PublicNode allows browser (CORS) requests; the official public RPC returns 403 to browsers.
-const ENDPOINT = process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://solana-rpc.publicnode.com";
+// The browser never calls a third-party RPC directly (some networks block it: "Failed to fetch").
+// It talks to our own /api/solana relay, which forwards to the server-side SOLANA_RPC.
+const SITE = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://zerepad.up.railway.app").replace(/\/$/, "");
+const endpoint = () => `${typeof window === "undefined" ? SITE : window.location.origin}/api/solana`;
 
 function Live() {
   useLiveUpdates();
@@ -20,6 +22,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // Installed Wallet Standard wallets (Phantom, Backpack, …) are auto-detected. Phantom and
   // Solflare are also listed explicitly so they appear with an install link when missing.
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
+  const ENDPOINT = useMemo(() => endpoint(), []);
   return (
     <ConnectionProvider endpoint={ENDPOINT} config={{ commitment: "confirmed" }}>
       <WalletProvider wallets={wallets} autoConnect>
