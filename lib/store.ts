@@ -58,7 +58,7 @@ interface World {
 
 /* ----------------------------- persistence ----------------------------- */
 
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://beckpad-production.up.railway.app").replace(/\/$/, "");
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://zerepad.up.railway.app").replace(/\/$/, "");
 
 function emptyWorld(): World {
   return {

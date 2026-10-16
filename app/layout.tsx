@@ -11,7 +11,7 @@ const cond = Anton({ weight: "400", subsets: ["latin"], variable: "--font-cond",
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 const jet = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jet", display: "swap" });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://beckpad-production.up.railway.app";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://zerepad.up.railway.app";
 const DESC = "Something is launching. ZerePad: a Solana launchpad where every buy is traced back to whoever drove it.";
 
 export const metadata: Metadata = {
