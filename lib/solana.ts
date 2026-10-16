@@ -1,7 +1,7 @@
 "use client";
 import { useCallback } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { VersionedTransaction, type Keypair } from "@solana/web3.js";
+import { VersionedTransaction, type Connection, type Keypair } from "@solana/web3.js";
 import { api } from "./api";
 import type { PumpTxRequest } from "@/types";
 
@@ -24,75 +24,102 @@ function fromBase64(b64: string) {
   return out;
 }
 
-/** Polls a signature until it confirms; throws on failure, SentButUnconfirmed on timeout. */
-async function confirm(connection: ReturnType<typeof useConnection>["connection"], signature: string, onStatus?: (s: string) => void, label = "Confirming on Solana…") {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Re-stamps transactions with a blockhash fetched from the same RPC that will
+ * send them, right before the wallet prompt. PumpPortal stamps the create
+ * transaction with a blockhash from its own node, which ours may not know yet
+ * or may already consider stale ("Blockhash not found"). Must run before any
+ * signature is added, since signatures cover the blockhash.
+ */
+async function freshen(connection: Connection, txs: VersionedTransaction[]) {
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  for (const tx of txs) tx.message.recentBlockhash = blockhash;
+  return lastValidBlockHeight;
+}
+
+/**
+ * Sends a signed transaction and keeps re-broadcasting it every 2s until it
+ * confirms, fails on-chain, or its blockhash expires. Preflight is skipped:
+ * the preflight simulation is what rejected launches with "Blockhash not
+ * found" when the RPC node lagged. A real failure still surfaces, from the
+ * confirmed status, with the program's own error.
+ */
+async function sendAndConfirm(connection: Connection, raw: Uint8Array, lastValidBlockHeight: number, onStatus?: (s: string) => void, label = "Confirming on Solana…") {
+  const signature = await connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 });
   onStatus?.(label);
-  const deadline = Date.now() + 90_000;
+  const started = Date.now();
   let lastErr: string | null = null;
-  while (Date.now() < deadline) {
+  while (Date.now() - started < 120_000) {
     try {
       const s = (await connection.getSignatureStatuses([signature])).value[0];
-      if (s) {
-        if (s.err) throw new Error("Transaction failed on-chain (slippage or insufficient SOL)");
-        if (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized") return signature;
+      if (s?.err) throw new Error(`Transaction failed on-chain: ${JSON.stringify(s.err)}. Usually not enough SOL for the launch plus the first buy, or the price moved past slippage.`);
+      if (s && (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized")) return signature;
+      if (!s) {
+        const height = await connection.getBlockHeight("confirmed");
+        if (height > lastValidBlockHeight) throw new Error("The transaction expired before it landed. Nothing was charged. Please try again.");
+        await connection.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 }).catch(() => {});
       }
     } catch (e) {
-      if (e instanceof Error && /failed on-chain/.test(e.message)) throw e;
-      lastErr = e instanceof Error ? e.message : String(e);
+      if (e instanceof Error && /failed on-chain|expired before/.test(e.message)) throw e;
+      lastErr = e instanceof Error ? e.message : String(e); // RPC hiccup: keep polling
     }
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleep(2000);
   }
   throw new SentButUnconfirmed(signature, `Sent, but confirmation could not be verified${lastErr ? ` (${lastErr.slice(0, 80)})` : ""}. Check ${EXPLORER(signature)}`);
+}
+
+/** Has the wallet sign (not send), so every broadcast goes through our own RPC relay. */
+async function signOne(wallet: ReturnType<typeof useWallet>, tx: VersionedTransaction) {
+  if (!wallet.signTransaction) throw new Error("This wallet cannot sign transactions. Try Phantom or Solflare.");
+  return wallet.signTransaction(tx);
 }
 
 /**
  * The launch: the create transaction (launcher is the coin's creator and pays
  * for the dev buy) and the fee-share transaction (100% of creator fees to the
  * ZerePad wallet, locked), signed together in one wallet approval when the
- * wallet supports it, then sent in order. `feeShare` alone re-sends just the
- * second one, for a launch whose first transaction already landed.
+ * wallet supports it, then sent in order. `sendFeeShare` alone re-sends just
+ * the second one, for a launch whose first transaction already landed.
  */
 export function usePumpLaunch() {
   const { connection } = useConnection();
   const wallet = useWallet();
   const sendFeeShare = useCallback(
     async (mint: string, onStatus?: (s: string) => void) => {
-      if (!wallet.publicKey || !wallet.sendTransaction) throw new Error("Connect a wallet first");
+      if (!wallet.publicKey) throw new Error("Connect a wallet first");
       onStatus?.("Building fee-share transaction…");
       const tx = VersionedTransaction.deserialize(fromBase64(await api.buildFeeShareTx(mint, wallet.publicKey.toBase58())));
+      const lvh = await freshen(connection, [tx]);
       onStatus?.("Approve the fee-share step in your wallet…");
-      const sig = await wallet.sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
-      return confirm(connection, sig, onStatus, "Locking creator fees…");
+      const signed = await signOne(wallet, tx);
+      return sendAndConfirm(connection, signed.serialize(), lvh, onStatus, "Locking creator fees…");
     },
     [connection, wallet],
   );
   const launch = useCallback(
     async (req: Omit<PumpTxRequest, "publicKey">, mintSigner: Keypair, onStatus?: (s: string) => void): Promise<{ createSig: string; feeSig: string | null }> => {
-      if (!wallet.publicKey || !wallet.sendTransaction) throw new Error("Connect a wallet first");
+      if (!wallet.publicKey) throw new Error("Connect a wallet first");
       const me = wallet.publicKey.toBase58();
       onStatus?.("Building transactions…");
       const [createB64, feeB64] = await Promise.all([api.buildTx({ ...req, publicKey: me }), api.buildFeeShareTx(mintSigner.publicKey.toBase58(), me)]);
       const createTx = VersionedTransaction.deserialize(fromBase64(createB64));
       const feeTx = VersionedTransaction.deserialize(fromBase64(feeB64));
+      const lvh = await freshen(connection, [createTx, feeTx]);
       createTx.sign([mintSigner]);
-      if (wallet.signAllTransactions) {
-        onStatus?.("Approve in your wallet…");
-        const [signedCreate, signedFee] = await wallet.signAllTransactions([createTx, feeTx]);
-        const createSig = await connection.sendRawTransaction(signedCreate.serialize(), { maxRetries: 3, preflightCommitment: "confirmed" });
-        await confirm(connection, createSig, onStatus);
-        try {
-          const feeSig = await connection.sendRawTransaction(signedFee.serialize(), { maxRetries: 3, preflightCommitment: "confirmed" });
-          await confirm(connection, feeSig, onStatus, "Locking creator fees…");
-          return { createSig, feeSig };
-        } catch {
-          return { createSig, feeSig: null }; // e.g. its blockhash expired while the first one confirmed; the caller re-sends it
-        }
+      onStatus?.("Approve in your wallet…");
+      let signedCreate: VersionedTransaction;
+      let signedFee: VersionedTransaction | null = null;
+      if (wallet.signAllTransactions) [signedCreate, signedFee] = await wallet.signAllTransactions([createTx, feeTx]);
+      else signedCreate = await signOne(wallet, createTx);
+      const createSig = await sendAndConfirm(connection, signedCreate.serialize(), lvh, onStatus);
+      if (!signedFee) return { createSig, feeSig: await sendFeeShare(mintSigner.publicKey.toBase58(), onStatus).catch(() => null) };
+      try {
+        return { createSig, feeSig: await sendAndConfirm(connection, signedFee.serialize(), lvh, onStatus, "Locking creator fees…") };
+      } catch {
+        return { createSig, feeSig: null }; // e.g. its blockhash expired while the first one confirmed; the caller re-sends it
       }
-      onStatus?.("Approve the launch in your wallet…");
-      const createSig = await wallet.sendTransaction(createTx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
-      await confirm(connection, createSig, onStatus);
-      const feeSig = await sendFeeShare(mintSigner.publicKey.toBase58(), onStatus).catch(() => null);
-      return { createSig, feeSig };
     },
     [connection, wallet, sendFeeShare],
   );
@@ -106,31 +133,14 @@ export function usePumpTx() {
 
   return useCallback(
     async (req: Omit<PumpTxRequest, "publicKey">, extraSigners: Keypair[] = [], onStatus?: (s: string) => void) => {
-      if (!wallet.publicKey || !wallet.sendTransaction) throw new Error("Connect a wallet first");
+      if (!wallet.publicKey) throw new Error("Connect a wallet first");
       onStatus?.("Building transaction…");
-      const b64 = await api.buildTx({ ...req, publicKey: wallet.publicKey.toBase58() });
-      const tx = VersionedTransaction.deserialize(fromBase64(b64));
+      const tx = VersionedTransaction.deserialize(fromBase64(await api.buildTx({ ...req, publicKey: wallet.publicKey.toBase58() })));
+      const lvh = await freshen(connection, [tx]);
       if (extraSigners.length) tx.sign(extraSigners);
       onStatus?.("Approve in your wallet…");
-      const signature = await wallet.sendTransaction(tx, connection, { maxRetries: 3, preflightCommitment: "confirmed" });
-      onStatus?.("Confirming on Solana…");
-      const deadline = Date.now() + 90_000;
-      let lastErr: string | null = null;
-      while (Date.now() < deadline) {
-        try {
-          const st = await connection.getSignatureStatuses([signature]);
-          const s = st.value[0];
-          if (s) {
-            if (s.err) throw new Error("Transaction failed on-chain (slippage or insufficient SOL)");
-            if (s.confirmationStatus === "confirmed" || s.confirmationStatus === "finalized") return signature;
-          }
-        } catch (e) {
-          if (e instanceof Error && /failed on-chain/.test(e.message)) throw e;
-          lastErr = e instanceof Error ? e.message : String(e); // RPC hiccup: keep polling
-        }
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-      throw new SentButUnconfirmed(signature, `Sent, but confirmation could not be verified${lastErr ? ` (${lastErr.slice(0, 80)})` : ""}. Check ${EXPLORER(signature)}`);
+      const signed = await signOne(wallet, tx);
+      return sendAndConfirm(connection, signed.serialize(), lvh, onStatus);
     },
     [connection, wallet],
   );
