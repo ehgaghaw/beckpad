@@ -150,7 +150,7 @@ export function LaunchForm() {
         else throw e;
       }
       writePending({ mint, signature, creator: id.address, ticker: meta.symbol });
-      status("Sent. Listing on AlexPad…");
+      status("Sent. Listing on ZerePad…");
       const coin = await register(mint, signature, id.address);
       writePending(null);
       toast.success(`$${coin.ticker} is live on Solana!`, {

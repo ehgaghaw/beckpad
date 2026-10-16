@@ -1,4 +1,4 @@
-Contact: https://x.com/ZssBecker
+Contact: https://x.com/0xzerebro
 Contact: https://github.com/ehgaghaw/beckpad/issues
 Preferred-Languages: en
 Canonical: https://beckpad.live/.well-known/security.txt

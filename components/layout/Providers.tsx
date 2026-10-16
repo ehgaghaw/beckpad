@@ -30,7 +30,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             theme="dark"
             position="bottom-right"
             toastOptions={{
-              style: { background: "#1c1033", border: "2px solid #3d2766", color: "#f6f1ff", boxShadow: "4px 4px 0 0 #000", borderRadius: 6 },
+              style: { background: "#0f0d13", border: "1px solid #3a3046", color: "#ece8f2", borderRadius: 2, fontFamily: "var(--font-jet), monospace", fontSize: 12, letterSpacing: "0.04em" },
             }}
           />
         </WalletModalProvider>

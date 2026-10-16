@@ -1,32 +1,48 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
+import { X_URL, XLogo } from "./Header";
+
+/** One row of the wall: ZEREPAD and the bust, repeated, doubled so the slide loops seamlessly. */
+function WallRow({ rev = false, size }: { rev?: boolean; size: string }) {
+  const unit = Array.from({ length: 6 }, (_, i) => (
+    <span key={i}>
+      ZEREPAD
+      <img src="/zerebro.png" alt="" />
+    </span>
+  ));
+  return (
+    <div className={`wall-row ${rev ? "rev" : ""}`} style={{ fontSize: size }} aria-hidden>
+      {unit}
+      {unit}
+    </div>
+  );
+}
 
 export function Footer() {
   return (
-    <footer className="border-t-4 border-plum mt-8 bg-black/30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-3">
-          <img src="/logo.png" alt="AlexPad" width={40} height={40} className="w-10 h-10 rounded pixelated border-2 border-line" />
-          <span className="font-display font-bold text-lg tracking-wider text-gold">ALEXPAD</span>
-        </Link>
-        <div className="flex items-center gap-3 text-xs text-muted">
-          <a href="https://github.com/ehgaghaw/beckpad" target="_blank" rel="noreferrer" className="hover:text-gold">
-            Open source
-          </a>
-          <a href="https://pump.fun" target="_blank" rel="noreferrer" className="hover:text-gold">
-            Powered by pump.fun
-          </a>
-          <a
-            href="https://x.com/ZssBecker"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="AlexPad on X"
-            className="w-9 h-9 rounded-md border-2 border-line text-muted flex items-center justify-center hover:text-gold hover:border-gold transition"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden className="w-4 h-4" fill="currentColor">
-              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-            </svg>
-          </a>
+    <footer className="mt-16">
+      <div className="wall py-1">
+        <WallRow size="clamp(56px, 9vw, 120px)" />
+        <WallRow rev size="clamp(56px, 9vw, 120px)" />
+      </div>
+      <div className="border-t border-line bg-bg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-wrap items-center justify-between gap-4">
+          <Link href="/" className="flex items-center gap-3">
+            <img src="/logo.png" alt="ZerePad" width={32} height={32} className="w-8 h-8 pixelated border border-line" />
+            <span className="font-display text-xl tracking-wide">ZEREPAD</span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted hidden sm:inline cursor">signal acquired</span>
+          </Link>
+          <div className="flex items-center gap-5 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+            <a href="https://github.com/ehgaghaw/beckpad" target="_blank" rel="noreferrer" className="hover:text-gold transition">
+              Open source
+            </a>
+            <a href="https://pump.fun" target="_blank" rel="noreferrer" className="hover:text-gold transition">
+              Powered by pump.fun
+            </a>
+            <a href={X_URL} target="_blank" rel="noreferrer" aria-label="@0xzerebro on X" className="w-9 h-9 border border-line flex items-center justify-center hover:text-gold hover:border-gold transition">
+              <XLogo className="w-4 h-4" />
+            </a>
+          </div>
         </div>
       </div>
     </footer>

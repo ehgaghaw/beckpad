@@ -1,7 +1,7 @@
 /**
- * Server-side registry + attribution index for coins launched through AlexPad.
+ * Server-side registry + attribution index for coins launched through ZerePad.
  * The bonding curve itself lives on-chain (pump.fun program); this store keeps
- * metadata, trades that went through AlexPad (verified on-chain), referral
+ * metadata, trades that went through ZerePad (verified on-chain), referral
  * links, comments and derived stats. Persisted through lib/db.ts (Postgres when
  * DATABASE_URL is set, otherwise a JSON file in DATA_DIR).
  */
@@ -144,7 +144,7 @@ function short(addr: string) {
 
 function refCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "ALEX-";
+  let s = "ZERE-";
   for (let i = 0; i < 4; i++) s += chars[rng.int(0, chars.length - 1)];
   return world.referralLinks.has(s) ? refCode() : s;
 }
@@ -230,7 +230,7 @@ function recomputeRug(c: Coin, holders: Holder[]) {
   if (bundledDetected) notes.push(`${bundledBuys} wallets bought within 3s of launch`);
   if (top10Pct > 50) notes.push("Top-10 holders over 50%");
   if (devWalletPct > 15) notes.push("Dev wallet over 15%");
-  if (trades.length === 0) notes.push("No AlexPad trades yet");
+  if (trades.length === 0) notes.push("No ZerePad trades yet");
   if (notes.length === 0) notes.push("No red flags detected");
   c.rug = { devWalletPct: +devWalletPct.toFixed(1), top10Pct: +top10Pct.toFixed(1), bundledBuys, bundledDetected, devSold, devLocked: false, score, grade: scoreToGrade(score), notes };
 }
