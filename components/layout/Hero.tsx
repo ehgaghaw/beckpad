@@ -64,9 +64,6 @@ export function Hero() {
         <p className="rise mt-5 font-mono text-sm sm:text-base uppercase tracking-[0.2em] text-gold cursor" style={{ ["--d" as string]: "0.3s" }}>
           <Decode text="something is launching." delay={500} every={9000} />
         </p>
-        <p className="rise mt-4 max-w-md text-[15px] leading-relaxed text-muted" style={{ ["--d" as string]: "0.45s" }}>
-          Coins appear here before anyone knows what they are. Every one is real, on the pump.fun curve, and every buy is traced back to whoever brought it.
-        </p>
         <div className="rise mt-7 flex flex-wrap items-center gap-3" style={{ ["--d" as string]: "0.6s" }}>
           <Link href="/launch" className="h-11 px-6 bg-gold text-black font-mono text-xs font-bold uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-white hover:shadow-[0_0_30px_rgba(183,95,224,0.6)] transition">
             + Launch a coin
