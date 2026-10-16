@@ -103,6 +103,9 @@ export const api = {
   /** The second launch transaction: locks the coin's creator fees to the ZerePad fee wallet. */
   buildFeeShareTx: (mint: string, launcher: string) => rpc<string>("buildFeeShareTx", mint, launcher),
 
+  /** Claim-and-forward plan for a fee wallet: what is claimable, what would be sent, and the unsigned transaction. */
+  buildClaimTx: (owner: string, to: string, sweepAll = false) => rpc<{ tx: string | null; claimableSol: number; sendSol: number; sources: Array<{ label: string; sol: number }>; note?: string }>("buildClaimTx", owner, to, sweepAll),
+
   /** Creator fees waiting in the pump.fun creator vault for this wallet. */
   getCreatorFees: (wallet: string) => rpc<CreatorFees>("getCreatorFees", wallet),
 

@@ -145,3 +145,20 @@ export function usePumpTx() {
     [connection, wallet],
   );
 }
+
+/** Signs a server-built transaction (base64) in the wallet with a fresh blockhash, then sends and confirms it. */
+export function useSignAndSend() {
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  return useCallback(
+    async (b64: string, onStatus?: (s: string) => void) => {
+      if (!wallet.publicKey) throw new Error("Connect a wallet first");
+      const tx = VersionedTransaction.deserialize(fromBase64(b64));
+      const lvh = await freshen(connection, [tx]);
+      onStatus?.("Approve in your wallet…");
+      const signed = await signOne(wallet, tx);
+      return sendAndConfirm(connection, signed.serialize(), lvh, onStatus);
+    },
+    [connection, wallet],
+  );
+}
