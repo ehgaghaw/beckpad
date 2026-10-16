@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   description: DESC,
   alternates: { canonical: "/" },
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icon.png", apple: "/apple-icon.png", shortcut: "/icon.png" },
+  icons: { icon: [{ url: "/favicon.ico", sizes: "16x16 32x32 48x48" }, { url: "/icon.png", type: "image/png", sizes: "512x512" }], apple: "/apple-icon.png", shortcut: "/favicon.ico" },
   openGraph: {
     type: "website",
     siteName: "ZerePad",
