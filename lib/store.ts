@@ -77,17 +77,27 @@ function emptyWorld(): World {
   };
 }
 
+/**
+ * Coins taken off the site (comma-separated mints in REMOVED_MINTS). They are
+ * skipped at load, so the next save deletes their rows from the database, and
+ * they can never be listed again. Removing a coin here does not touch the chain:
+ * it still exists on pump.fun and its fee split is unchanged.
+ */
+export const REMOVED_MINTS = new Set((process.env.REMOVED_MINTS ?? "").split(",").map((m) => m.trim()).filter(Boolean));
+
 function hydrate(w: World, raw: db.RawWorld) {
-  for (const c of raw.coins ?? []) if (c.curve && c.signature) w.coins.set(c.mint, c);
-  for (const [k, v] of raw.images ?? []) w.images.set(k, v);
-  for (const [k, v] of raw.pending ?? []) w.pending.set(k, v as PendingLaunch);
-  for (const [k, v] of raw.trades ?? []) w.trades.set(k, v);
+  const keep = (mint?: string) => !mint || !REMOVED_MINTS.has(mint);
+  for (const c of raw.coins ?? []) if (c.curve && c.signature && keep(c.mint)) w.coins.set(c.mint, c);
+  for (const [k, v] of raw.images ?? []) if (keep(k)) w.images.set(k, v);
+  for (const [k, v] of raw.pending ?? []) if (keep(k)) w.pending.set(k, v as PendingLaunch);
+  for (const [k, v] of raw.trades ?? []) if (keep(k)) w.trades.set(k, v);
   for (const s of raw.signatures ?? []) w.signatures.add(s);
-  for (const [k, v] of raw.comments ?? []) w.comments.set(k, v);
-  for (const [k, v] of raw.candles ?? []) w.candles.set(k, v);
-  for (const [k, v] of raw.referralLinks ?? []) w.referralLinks.set(k, v);
-  w.events = raw.events ?? [];
-  console.log(`[store] loaded ${w.coins.size} coin(s) via ${db.backendName}`);
+  for (const [k, v] of raw.comments ?? []) if (keep(k)) w.comments.set(k, v);
+  for (const [k, v] of raw.candles ?? []) if (keep(k)) w.candles.set(k, v);
+  for (const [k, v] of raw.referralLinks ?? []) if (keep(v.mint)) w.referralLinks.set(k, v);
+  w.events = (raw.events ?? []).filter((e) => keep((e as { mint?: string }).mint));
+  console.log(`[store] loaded ${w.coins.size} coin(s) via ${db.backendName}${REMOVED_MINTS.size ? `, ${REMOVED_MINTS.size} removed` : ""}`);
+  if (REMOVED_MINTS.size) setTimeout(save, 0); // write the removal through to the database
 }
 
 function snapshot(): db.RawWorld {
@@ -624,6 +634,7 @@ export async function prepareLaunch(input: PrepareLaunchInput): Promise<{ uri: s
 export async function registerCoin(input: RegisterCoinInput): Promise<Coin> {
   await ready;
   if (!isPubkey(input.mint) || !isPubkey(input.creator)) throw new Error("Invalid request");
+  if (REMOVED_MINTS.has(input.mint)) throw new Error("This coin has been removed from ZerePad.");
   if (world.coins.has(input.mint)) return pub(world.coins.get(input.mint)!);
   const p = world.pending.get(input.mint);
   if (!p) throw new Error("Launch was not prepared on this server");

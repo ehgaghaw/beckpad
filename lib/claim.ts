@@ -15,7 +15,7 @@
 import { ComputeBudgetProgram, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction, type TransactionInstruction } from "@solana/web3.js";
 import { OnlinePumpSdk, PUMP_SDK, feeSharingConfigPda } from "@pump-fun/pump-sdk";
 import { connection } from "./chain";
-import { listCoins } from "./store";
+import { listCoins, REMOVED_MINTS } from "./store";
 
 const CU_LIMIT = 600_000;
 const CU_PRICE = 50_000; // micro-lamports per CU
@@ -58,7 +58,8 @@ export async function buildClaimTx(ownerStr: string, toStr: string, sweepAll = f
   const sources: ClaimPlan["sources"] = [];
 
   // 1) every ZerePad coin whose fee-sharing config pays this wallet
-  const coins = [...(await listCoins("new", 200)), ...(await listCoins("graduated", 200))];
+  // listed coins plus removed ones: a removed coin's fee split still pays out on-chain
+  const coins = [...(await listCoins("new", 200)), ...(await listCoins("graduated", 200)), ...[...REMOVED_MINTS].map((mint) => ({ mint, ticker: mint.slice(0, 4) + "…" }))];
   const seen = new Set<string>();
   for (const c of coins) {
     if (seen.has(c.mint)) continue;
