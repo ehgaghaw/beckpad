@@ -3,12 +3,16 @@
  * balances, verifies confirmed transactions, and builds trade/create transactions
  * through PumpPortal's local transaction API (signed later in the browser).
  */
-import { Connection, PublicKey, type ParsedTransactionWithMeta } from "@solana/web3.js";
+import { Connection, PublicKey, VersionedTransaction, type ParsedTransactionWithMeta } from "@solana/web3.js";
 import type { CurveSnapshot, PumpTxRequest } from "@/types";
 
 export const RPC_URL = process.env.SOLANA_RPC ?? process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://solana-rpc.publicnode.com";
 export const PUMP_PROGRAM = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 const PUMPPORTAL = "https://pumpportal.fun/api/trade-local";
+/** Every coin launched on ZerePad names this wallet as its pump.fun creator, so all creator fees are paid to it. */
+export const FEE_WALLET = new PublicKey(process.env.FEE_WALLET ?? "Bsx8Mtd9tA6j8yWjg5cFejUivZULVJ6oWEhgmdJCL7WV");
+/** Anchor discriminator of pump.fun's create_v2 instruction. */
+const CREATE_V2 = "d6904cec5f8b31b4";
 const DECIMALS = 6;
 
 const g = globalThis as unknown as { __alexpadConn?: Connection };
@@ -140,7 +144,35 @@ export async function buildPumpTx(req: PumpTxRequest): Promise<string> {
     throw new Error(`Could not build transaction (${res.status}): ${text.slice(0, 200) || res.statusText}`);
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
-  return Buffer.from(bytes).toString("base64");
+  if (req.action !== "create") return Buffer.from(bytes).toString("base64");
+  return Buffer.from(routeCreatorFees(bytes, new PublicKey(req.publicKey)).serialize()).toString("base64");
+}
+
+/**
+ * Rewrites PumpPortal's unsigned create transaction so the coin's creator is
+ * FEE_WALLET instead of the launcher. pump.fun's create_v2 takes the creator
+ * as an argument (32 bytes just before the final flag byte) separate from the
+ * paying user, and the bundled dev buy references that creator's fee vault,
+ * so both are swapped. The launcher still pays and signs. Fails closed: if the
+ * transaction is not shaped as expected, no transaction is returned at all.
+ * Verified by mainnet simulation (curve.creator = FEE_WALLET, no error).
+ */
+export function routeCreatorFees(bytes: Uint8Array, launcher: PublicKey): VersionedTransaction {
+  const tx = VersionedTransaction.deserialize(bytes);
+  const m = tx.message;
+  const keys = m.staticAccountKeys;
+  const creates = m.compiledInstructions.filter((ix) => keys[ix.programIdIndex]?.equals(PUMP_PROGRAM) && Buffer.from(ix.data).subarray(0, 8).toString("hex") === CREATE_V2);
+  if (creates.length !== 1) throw new Error("Launch transaction not recognised (create instruction). Nothing was sent.");
+  const data = Buffer.from(creates[0].data);
+  const at = data.length - 33;
+  if (at < 8 || !new PublicKey(data.subarray(at, at + 32)).equals(launcher)) throw new Error("Launch transaction not recognised (creator field). Nothing was sent.");
+  FEE_WALLET.toBuffer().copy(data, at);
+  creates[0].data = new Uint8Array(data);
+  const oldVault = creatorVaultPda(launcher.toBase58());
+  const vi = keys.findIndex((k) => k.equals(oldVault));
+  if (vi === -1) throw new Error("Launch transaction not recognised (fee vault). Nothing was sent.");
+  keys[vi] = creatorVaultPda(FEE_WALLET.toBase58());
+  return tx;
 }
 
 let solPriceCache = { usd: 0, at: 0 };

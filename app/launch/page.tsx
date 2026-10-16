@@ -18,7 +18,7 @@ export default function LaunchPage() {
             One form. One signature. The token is minted on Solana and starts trading on the pump.fun curve the moment it lands. Nothing here can be undone.
           </p>
         </div>
-        <dl className="grid grid-cols-3 lg:grid-cols-1 gap-4 lg:gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted lg:text-right">
+        <dl className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-4 lg:gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted lg:text-right">
           <div>
             <dt>creation cost</dt>
             <dd className="text-white">~0.02 SOL</dd>
@@ -26,6 +26,10 @@ export default function LaunchPage() {
           <div>
             <dt>graduates at</dt>
             <dd className="text-white">~85 SOL</dd>
+          </div>
+          <div>
+            <dt>creator fees</dt>
+            <dd className="text-gold">to ZerePad</dd>
           </div>
           <div>
             <dt>supply</dt>

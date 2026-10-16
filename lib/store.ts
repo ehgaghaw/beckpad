@@ -534,7 +534,7 @@ export async function metadataFor(mint: string) {
     createdOn: "https://pump.fun",
     twitter: src.socials.twitter,
     telegram: src.socials.telegram,
-    website: src.socials.website || SITE_URL,
+    website: src.socials.website || undefined,
   };
 }
 

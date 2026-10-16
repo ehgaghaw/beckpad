@@ -290,7 +290,7 @@ export function LaunchForm() {
             </span>
           </div>
           <input type="range" min={0.01} max={10} step={0.01} value={form.devBuySol} onChange={(e) => set("devBuySol", parseFloat(e.target.value))} className="w-full max-w-sm mt-3 block" />
-          <p className="font-mono text-[10px] text-muted mt-2 max-w-sm">A large first buy means the dev wallet holds more supply, which lowers the rug check grade.</p>
+          <p className="font-mono text-[10px] text-muted mt-2 max-w-sm">A large first buy means the dev wallet holds more supply, which lowers the rug check grade. Creator fees from trading go to the ZerePad wallet.</p>
           <dl className="receipt mt-6 max-w-sm">
             <div>
               <dt>token creation + network</dt>
@@ -352,6 +352,7 @@ export function LaunchForm() {
             <li>· mints a real token on Solana mainnet, 1B supply, on the pump.fun curve</li>
             <li>· your {form.devBuySol.toFixed(2)} SOL first buy runs in the same transaction</li>
             <li>· your wallet asks for one approval, about {total} SOL in total</li>
+            <li>· pump.fun creator fees from this coin go to the ZerePad wallet, not to you</li>
             <li>· this cannot be undone</li>
           </ul>
           {step && <div className="font-mono text-[11px] text-gold cursor">{step}</div>}
